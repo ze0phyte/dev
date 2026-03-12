@@ -22,7 +22,7 @@ public class PlayerJoinQuitListener implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         // Update tab list and scoreboard for the new player
         ScoreboardUtils.updateTabList(plugin.getGameManager());
-        ScoreboardUtils.updateSidebar(event.getPlayer(), plugin.getGameManager());
+        ScoreboardUtils.clearSidebar(event.getPlayer());
 
         // If game is running and this player is NOT in the game, put them in spectator
         GameManager gm = plugin.getGameManager();
