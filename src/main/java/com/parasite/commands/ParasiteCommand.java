@@ -1,5 +1,5 @@
 package com.parasite.commands;
-
+import com.parasite.utils.ScoreboardUtils;
 import com.parasite.ParasitePlugin;
 import com.parasite.game.GameManager;
 import com.parasite.game.GameState;
@@ -88,6 +88,11 @@ public class ParasiteCommand implements CommandExecutor {
                 sender.sendMessage("§7Lobby: §f" + (gm.getLobbyLocation() != null ? "Set" : "§cNot set"));
                 sender.sendMessage("§7Arena: §f" + (gm.getArenaLocation() != null ? "Set" : "§cNot set"));
                 sender.sendMessage("§8§m──────────────────────────");
+            }
+           
+            case "info" -> {
+             if (!(sender instanceof Player p)) { sender.sendMessage("§cMust be a player."); return true; }
+             ScoreboardUtils.toggleInfo(p, gm);
             }
 
             default -> sendHelp(sender);

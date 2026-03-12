@@ -824,7 +824,6 @@ public class GameManager {
         scoreboardTask = new BukkitRunnable() {
             @Override
             public void run() {
-                ScoreboardUtils.updateSidebar(GameManager.this);
                 ScoreboardUtils.updateTabList(GameManager.this);
             }
         }.runTaskTimer(plugin, 0L, 20L);

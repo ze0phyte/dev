@@ -8,24 +8,30 @@ import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.scoreboard.*;
 
-import java.util.List;
-import java.util.stream.Collectors;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
 
 public class ScoreboardUtils {
 
-    // ── Sidebar scoreboard shown to all players ──────────────────────────────
+    private static final Set<UUID> infoEnabled = new HashSet<>();
 
-    public static void updateSidebar(GameManager gm) {
-        for (Player p : Bukkit.getOnlinePlayers()) {
-            updateSidebar(p, gm);
+    public static void toggleInfo(Player player, GameManager gm) {
+        if (infoEnabled.contains(player.getUniqueId())) {
+            infoEnabled.remove(player.getUniqueId());
+            clearSidebar(player);
+            player.sendMessage(GameManager.PREFIX + "§7Info display §coff§7.");
+        } else {
+            infoEnabled.add(player.getUniqueId());
+            showInfo(player, gm);
+            player.sendMessage(GameManager.PREFIX + "§7Info display §aon§7. Run again to refresh or turn off.");
         }
     }
 
-    public static void updateSidebar(Player player, GameManager gm) {
+    public static void showInfo(Player player, GameManager gm) {
         ScoreboardManager sbm = Bukkit.getScoreboardManager();
         Scoreboard board = sbm.getNewScoreboard();
-
-        Objective obj = board.registerNewObjective("parasite", Criteria.DUMMY, "§5§l☣ PARASITE ☣");
+        Objective obj = board.registerNewObjective("pinfo", Criteria.DUMMY, "§5§l☣ PARASITE ☣");
         obj.setDisplaySlot(DisplaySlot.SIDEBAR);
 
         GameState state = gm.getState();
@@ -33,108 +39,92 @@ public class ScoreboardUtils {
 
         if (state == GameState.WAITING || state == GameState.STARTING) {
             setLine(board, obj, line--, "§r");
-            setLine(board, obj, line--, "§ePlayers: §a" + gm.getPlayerCount() + "/" + gm.getMaxPlayers());
+            setLine(board, obj, line--, "§7Status: " + (state == GameState.STARTING ? "§eStarting..." : "§7Waiting"));
+            setLine(board, obj, line--, "§7Players: §f" + gm.getPlayerCount() + " §7/ §f" + gm.getMaxPlayers());
+            setLine(board, obj, line--, "§7Min to start: §f" + gm.getMinPlayers());
             setLine(board, obj, line--, "§r§r");
-            if (state == GameState.STARTING) {
-                setLine(board, obj, line--, "§eStarting in: §a" + gm.getTimer() + "s");
-            } else {
-                setLine(board, obj, line--, "§7Waiting for players...");
-                setLine(board, obj, line--, "§8Min: " + gm.getMinPlayers() + " players");
-            }
-            setLine(board, obj, line--, "§r§r§r");
-            setLine(board, obj, line--, "§b/pjoin §7to board ship");
+            setLine(board, obj, line--, "§b/pjoin §7to join");
         } else {
-            GamePlayer gp = gm.getGamePlayer(player.getUniqueId());
-            setLine(board, obj, line--, "§r");
-            setLine(board, obj, line--, "§eDay: §f" + gm.getCurrentDay());
-            setLine(board, obj, line--, "§r§r");
+            long alive = gm.getAlivePlayers().size();
+            long total = gm.getAllGamePlayers().size();
+            long dead = total - alive;
 
-            String phase;
-            switch (state) {
-                case IN_ROUND -> phase = "§a⚙ IN ROUND";
-                case DISCUSSION -> phase = "§e☎ DISCUSSION";
-                case VOTING -> phase = "§c🗳 VOTING";
-                case ROUND_END -> phase = "§6§l RESULTS";
-                default -> phase = "§7...";
-            }
+            String phase = switch (state) {
+                case IN_ROUND   -> "§aIn Round";
+                case DISCUSSION -> "§eDiscussion";
+                case VOTING     -> "§cVoting";
+                case ROUND_END  -> "§6Results";
+                default         -> "§7-";
+            };
+
+            setLine(board, obj, line--, "§r");
+            setLine(board, obj, line--, "§7Day: §f" + gm.getCurrentDay());
             setLine(board, obj, line--, "§7Phase: " + phase);
             setLine(board, obj, line--, "§7Time: §f" + formatTime(gm.getTimer()));
+            setLine(board, obj, line--, "§r§r");
+            setLine(board, obj, line--, "§7Alive: §a" + alive + "  §7Dead: §c" + dead);
             setLine(board, obj, line--, "§r§r§r");
 
-            // Show alive crew count
-            long alive = gm.getAlivePlayers().size();
-            long dead = gm.getAllGamePlayers().stream().filter(g -> !g.isAlive()).count();
-            setLine(board, obj, line--, "§7Alive: §a" + alive + " §7| Dead: §c" + dead);
-            setLine(board, obj, line--, "§r§r§r§r");
-
-            if (gp != null && gp.isAlive()) {
-                setLine(board, obj, line--, "§7Your role:");
-                setLine(board, obj, line--, gp.getRole().getColor() + "§l" + stripColor(gp.getRole().getDisplay()));
-
-                if (gp.getRole() == Role.PARASITE) {
-                    setLine(board, obj, line--, "§r§r§r§r§r");
-                    long cd = gm.getSwapCooldownRemaining(player.getUniqueId());
-                    if (cd > 0) {
-                        setLine(board, obj, line--, "§cSwap [G]: §f" + cd + "s");
-                    } else {
-                        setLine(board, obj, line--, "§aSwap [G]: §fREADY");
-                    }
-                    if (gp.isInfected()) {
-                        setLine(board, obj, line--, "§4Infected someone this round");
-                    }
-                }
-                if (gp.getRole() == Role.DOCTOR) {
-                    setLine(board, obj, line--, "§r§r§r§r§r");
-                    setLine(board, obj, line--, gp.isSavedThisRound() ? "§7Save: §aUsed" : "§7Save: §bAvailable");
-                }
-            } else if (gp != null && !gp.isAlive()) {
-                setLine(board, obj, line--, "§r§r§r§r");
-                setLine(board, obj, line--, "§8☠ You are dead");
-                setLine(board, obj, line--, "§8Spectating...");
+            for (GamePlayer gp : gm.getAllGamePlayers()) {
+                String status = gp.isAlive() ? "§a✔" : "§c✘";
+                String roleTag = player.isOp()
+                        ? " §8[" + gp.getRole().getColor() + stripColor(gp.getRole().getDisplay()) + "§8]"
+                        : "";
+                String entry = status + " §f" + gp.getName() + roleTag;
+                if (line > 0) setLine(board, obj, line--, entry);
             }
         }
 
         player.setScoreboard(board);
     }
 
-    private static void setLine(Scoreboard board, Objective obj, int score, String text) {
-        // Truncate to 40 chars to be safe
-        if (text.length() > 40) text = text.substring(0, 40);
-        Score s = obj.getScore(text);
-        s.setScore(score);
+    public static void refreshAll(GameManager gm) {
+        for (UUID id : infoEnabled) {
+            Player p = Bukkit.getPlayer(id);
+            if (p != null) showInfo(p, gm);
+        }
     }
 
-    private static String formatTime(int seconds) {
-        int m = seconds / 60;
-        int s = seconds % 60;
-        return String.format("%d:%02d", m, s);
+    public static void clearSidebar(Player player) {
+        player.setScoreboard(Bukkit.getScoreboardManager().getNewScoreboard());
     }
 
-    private static String stripColor(String s) {
-        return s.replaceAll("§[0-9a-fk-or]", "");
+    public static void clearAll() {
+        infoEnabled.clear();
+        for (Player p : Bukkit.getOnlinePlayers()) clearSidebar(p);
     }
-
-    // ── Tab list header/footer (shows online count in lobby) ─────────────────
 
     public static void updateTabList(GameManager gm) {
         for (Player p : Bukkit.getOnlinePlayers()) {
-            updateTabList(p, gm);
+            if (p.isOp()) updateTabList(p, gm);
         }
     }
 
     public static void updateTabList(Player player, GameManager gm) {
+        if (!player.isOp()) return;
         GameState state = gm.getState();
         String header, footer;
         if (state == GameState.WAITING || state == GameState.STARTING) {
-            header = "\n§5§l☣ PARASITE — SPACE MAFIA ☣\n";
-            footer = "\n§ePlayers in lobby: §a" + gm.getPlayerCount() + " §8/ §7" + gm.getMaxPlayers()
-                    + "\n§7Type §b/pjoin §7to board the ship!\n";
+            header = "\n§5§l☣ PARASITE §8| §7Admin View\n";
+            footer = "\n§7Lobby: §a" + gm.getPlayerCount() + " §7/ §f" + gm.getMaxPlayers() + "\n";
         } else {
-            header = "\n§5§l☣ PARASITE — DAY " + gm.getCurrentDay() + " ☣\n";
+            header = "\n§5§l☣ PARASITE §8| §7Day " + gm.getCurrentDay() + " — " + state.name() + "\n";
             footer = "\n§7Alive: §a" + gm.getAlivePlayers().size()
-                    + "  §7Dead: §c" + (gm.getAllGamePlayers().stream().filter(g -> !g.isAlive()).count())
-                    + "\n";
+                    + "  §7Dead: §c" + (gm.getAllGamePlayers().stream().filter(g -> !g.isAlive()).count()) + "\n";
         }
         player.setPlayerListHeaderFooter(header, footer);
+    }
+
+    private static void setLine(Scoreboard board, Objective obj, int score, String text) {
+        if (text.length() > 40) text = text.substring(0, 40);
+        obj.getScore(text).setScore(score);
+    }
+
+    private static String formatTime(int seconds) {
+        return String.format("%d:%02d", seconds / 60, seconds % 60);
+    }
+
+    private static String stripColor(String s) {
+        return s.replaceAll("§[0-9a-fk-or]", "");
     }
 }
