@@ -98,7 +98,7 @@ public class GameManager {
         player.getInventory().clear();
         player.setHealth(player.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue());
         player.setFoodLevel(20);
-        player.clearActivePotionEffects();
+        for (PotionEffect effect : p.getActivePotionEffects()) p.removePotionEffect(effect.getType());
 
         broadcastAll(PREFIX + "§a" + player.getName() + " §7boarded the ship! "
                 + "§8[§f" + gamePlayers.size() + "§8/§f" + cfgMaxPlayers + "§8]");
@@ -174,7 +174,7 @@ public class GameManager {
             p.getInventory().clear();
             p.setHealth(p.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue());
             p.setFoodLevel(20);
-            p.clearActivePotionEffects();
+            for (PotionEffect effect : p.getActivePotionEffects()) p.removePotionEffect(effect.getType());
             SkinUtils.setCrewSkin(p);
         }
 
@@ -540,7 +540,7 @@ public class GameManager {
 
         tgp.setInfected(true);
         parasite.sendMessage(PREFIX + "§4☣ §7You infected §f" + target.getName() + "§7! They will die at end of day unless the Doctor saves them.");
-        parasite.playSound(parasite.getLocation(), Sound.ENTITY_CAVE_SPIDER_AMBIENT, 1f, 0.5f);
+        parasite.playSound(parasite.getLocation(), Sound.ENTITY_SPIDER_AMBIENT, 1f, 0.5f);
         // Target doesn't know they're infected - no message to them
     }
 
@@ -882,7 +882,7 @@ public class GameManager {
         for (Player p : Bukkit.getOnlinePlayers()) {
             SkinUtils.restoreOriginalSkin(p);
             p.setGameMode(GameMode.SURVIVAL);
-            p.clearActivePotionEffects();
+            for (PotionEffect effect : p.getActivePotionEffects()) p.removePotionEffect(effect.getType());
             if (lobbyLocation != null) p.teleport(lobbyLocation);
         }
     }
