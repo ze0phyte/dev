@@ -1,0 +1,24 @@
+name: ParasiteGame
+version: 1.0.0
+main: com.parasite.ParasitePlugin
+api-version: 1.20
+description: Space-themed Mafia/Parasite game
+authors: [You]
+
+commands:
+  parasite:
+    description: Main parasite admin command
+    usage: /parasite <start|stop|setlobby|setarena|setrole|status|addplayer>
+    permission: parasite.admin
+  pjoin:
+    description: Join the parasite lobby
+    usage: /pjoin
+    permission: parasite.play
+
+permissions:
+  parasite.admin:
+    description: Admin access to parasite commands
+    default: op
+  parasite.play:
+    description: Play the game
+    default: true
