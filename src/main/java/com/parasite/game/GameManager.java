@@ -98,8 +98,8 @@ public class GameManager {
         player.getInventory().clear();
         player.setHealth(player.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue());
         player.setFoodLevel(20);
-        for (PotionEffect effect : p.getActivePotionEffects()) p.removePotionEffect(effect.getType());
-
+        for (PotionEffect effect : player.getActivePotionEffects()) player.removePotionEffect(effect.getType());
+        
         broadcastAll(PREFIX + "§a" + player.getName() + " §7boarded the ship! "
                 + "§8[§f" + gamePlayers.size() + "§8/§f" + cfgMaxPlayers + "§8]");
 
