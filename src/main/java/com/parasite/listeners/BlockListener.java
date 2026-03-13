@@ -1,168 +1,68 @@
-package com.parasite.utils;
+package com.parasite.listeners;
 
-import org.bukkit.ChatColor;
+import com.parasite.ParasitePlugin;
+import com.parasite.game.GameManager;
+import com.parasite.game.GameState;
 import org.bukkit.Material;
-import org.bukkit.enchantments.Enchantment;
-import org.bukkit.inventory.ItemFlag;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.CrossbowMeta;
-import org.bukkit.inventory.meta.ItemMeta;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+public class BlockListener implements Listener {
 
-public class ItemUtils {
+    private final ParasitePlugin plugin;
 
-    /** Vote paper with a player's name */
-    public static ItemStack votePaper(String playerName) {
-        ItemStack item = new ItemStack(Material.PAPER, 1);
-        ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName("§c§lVOTE: §f" + playerName);
-        meta.setLore(Arrays.asList("§7Right-click to vote for", "§e" + playerName));
-        item.setItemMeta(meta);
-        return item;
-    }
-
-    /** Skip vote paper */
-    public static ItemStack skipPaper() {
-        ItemStack item = new ItemStack(Material.PAPER, 1);
-        ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName("§7§lSKIP VOTE");
-        meta.setLore(Collections.singletonList("§7Right-click to skip voting this round"));
-        item.setItemMeta(meta);
-        return item;
+    public BlockListener(ParasitePlugin plugin) {
+        this.plugin = plugin;
     }
 
     /**
-     * Iron axe — can break oak signs only (set via CanDestroy NBT in Adventure mode).
-     * We use ItemMeta with the canDestroy flag so Adventure mode allows breaking OAK_WALL_SIGN
-     * and OAK_SIGN specifically.
+     * Block breaking:
+     * - Iron axe can break oak signs during IN_ROUND and DISCUSSION
+     * - Everything else blocked
      */
-    public static ItemStack crewAxe() {
-        ItemStack item = new ItemStack(Material.IRON_AXE, 1);
-        ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName("§7Maintenance Tool");
-        meta.setLore(Arrays.asList(
-                "§8Standard crew equipment",
-                "§7Can break §foak signs"
-        ));
-        // Add CanDestroy for oak signs via Adventure mode NBT
-        meta.addItemFlags(ItemFlag.HIDE_DESTROYS);
-        item.setItemMeta(meta);
+    @EventHandler(priority = EventPriority.LOW)
+    public void onBreak(BlockBreakEvent event) {
+        Player player = event.getPlayer();
+        GameManager gm = plugin.getGameManager();
+        if (!gm.isRunning()) return;
+        if (gm.getGamePlayer(player.getUniqueId()) == null) return;
 
-        // Apply CanDestroy NBT via Bukkit API — works in 1.20.1+
-        // We do this by using the PersistentDataContainer approach
-        // Actually in Spigot 1.20 the cleanest way is via ItemMeta directly with keys:
-        // Unfortunately pure Bukkit doesn't expose CanDestroy cleanly.
-        // The workaround: give the axe in SURVIVAL mode tick then back, OR
-        // use the Spigot-specific approach of setting damage tags.
-        // Best approach for Adventure mode: we allow axe to break signs via the BlockListener.
-        return item;
+        GameState state = gm.getState();
+        Material broken = event.getBlock().getType();
+        ItemStack held = player.getInventory().getItemInMainHand();
+
+        boolean isSign = broken == Material.OAK_SIGN || broken == Material.OAK_WALL_SIGN;
+        boolean hasAxe = held != null && held.getType() == Material.IRON_AXE;
+        boolean breakPhase = state == GameState.IN_ROUND || state == GameState.DISCUSSION;
+
+        if (isSign && hasAxe && breakPhase) return; // allow
+
+        event.setCancelled(true);
     }
 
     /**
-     * Identity Scanner — crossbow pre-loaded with one arrow.
-     * Player gets the crossbow already charged so they can fire immediately.
+     * Block placement:
+     * - Signs are allowed during IN_ROUND and DISCUSSION — Adventure mode
+     *   allows this natively because signs have CanPlaceOn NBT data set.
+     * - Everything else blocked.
      */
-    public static ItemStack scanCrossbow() {
-        ItemStack item = new ItemStack(Material.CROSSBOW, 1);
-        CrossbowMeta meta = (CrossbowMeta) item.getItemMeta();
-        meta.setDisplayName("§e§lIdentity Scanner");
-        meta.setLore(Arrays.asList(
-                "§7Shoot a player to scan their identity.",
-                "§c1 use per round — arrow included."
-        ));
-        // Pre-load the crossbow with an arrow so it fires immediately
-        ItemStack arrow = new ItemStack(Material.ARROW, 1);
-        meta.setChargedProjectiles(Collections.singletonList(arrow));
-        meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
-        item.setItemMeta(meta);
-        return item;
-    }
+    @EventHandler(priority = EventPriority.LOW)
+    public void onPlace(BlockPlaceEvent event) {
+        Player player = event.getPlayer();
+        GameManager gm = plugin.getGameManager();
+        if (!gm.isRunning()) return;
+        if (gm.getGamePlayer(player.getUniqueId()) == null) return;
 
-    /** Signs for crewmates — CanPlaceOn smooth_stone and gray_concrete (Adventure mode compatible) */
-    @SuppressWarnings("deprecation")
-    public static ItemStack signStack(int amount) {
-        ItemStack item = new ItemStack(Material.OAK_SIGN, amount);
-        ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName("§fCommunications Board");
-        meta.setLore(Collections.singletonList("§7Place on smooth stone or gray concrete"));
-        // setPlaceableKeys is the Bukkit API for CanPlaceOn in Adventure mode (1.13+)
-        meta.setPlaceableKeys(Arrays.asList(
-                org.bukkit.NamespacedKey.minecraft("smooth_stone"),
-                org.bukkit.NamespacedKey.minecraft("gray_concrete")
-        ));
-        item.setItemMeta(meta);
-        return item;
-    }
+        GameState state = gm.getState();
+        boolean isSign = event.getBlockPlaced().getType().name().contains("SIGN");
 
-    /** Parasite role card — Nether Star */
-    public static ItemStack parasiteIndicator() {
-        ItemStack item = new ItemStack(Material.NETHER_STAR, 1);
-        ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName("§4§l☣ YOU ARE THE PARASITE");
-        meta.setLore(Arrays.asList(
-                "§c• Right-click a player §4(empty hand)§c to INFECT",
-                "§c• Press §lF §r§cto SWAP positions with someone",
-                "§8  2 minute cooldown on swap",
-                "§7Infected players die before discussion",
-                "§7unless the Doctor saves them."
-        ));
-        item.setItemMeta(meta);
-        return item;
-    }
+        if (isSign && (state == GameState.IN_ROUND || state == GameState.DISCUSSION)) return; // allow
 
-    /** Doctor role card — Nether Star */
-    public static ItemStack doctorIndicator() {
-        ItemStack item = new ItemStack(Material.NETHER_STAR, 1);
-        ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName("§b§l✚ YOU ARE THE DOCTOR");
-        meta.setLore(Arrays.asList(
-                "§b• Right-click a player §3(empty hand)§b to SAVE",
-                "§7  One save per round only.",
-                "§7Save before the round ends to protect",
-                "§7someone from the parasite."
-        ));
-        item.setItemMeta(meta);
-        return item;
-    }
-
-    /** Crewmate role card — Nether Star */
-    public static ItemStack crewmateIndicator() {
-        ItemStack item = new ItemStack(Material.NETHER_STAR, 1);
-        ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName("§7§l⚙ YOU ARE A CREWMATE");
-        meta.setLore(Arrays.asList(
-                "§7• Place §fSigns§7 to communicate with others",
-                "§7• Shoot the §eIdentity Scanner§7 at a player",
-                "§7  to reveal their name (1 use per round)",
-                "§7• Vote out the parasite to win!"
-        ));
-        item.setItemMeta(meta);
-        return item;
-    }
-
-    /** Extract target player name from a vote paper display name. */
-    public static String extractPaperTarget(ItemStack item) {
-        if (item == null || item.getType() != Material.PAPER) return null;
-        if (!item.hasItemMeta() || !item.getItemMeta().hasDisplayName()) return null;
-        String name = item.getItemMeta().getDisplayName();
-        if (name.contains("VOTE: ") && !name.contains("SKIP")) {
-            return ChatColor.stripColor(name).replace("VOTE: ", "").trim();
-        }
-        return null;
-    }
-
-    public static boolean isSkipPaper(ItemStack item) {
-        if (item == null || item.getType() != Material.PAPER) return false;
-        if (!item.hasItemMeta() || !item.getItemMeta().hasDisplayName()) return false;
-        return item.getItemMeta().getDisplayName().contains("SKIP VOTE");
-    }
-
-    public static boolean isScannerItem(ItemStack item) {
-        if (item == null || item.getType() != Material.CROSSBOW) return false;
-        if (!item.hasItemMeta() || !item.getItemMeta().hasDisplayName()) return false;
-        return item.getItemMeta().getDisplayName().contains("Identity Scanner");
+        event.setCancelled(true);
     }
 }

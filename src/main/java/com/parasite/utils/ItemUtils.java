@@ -81,18 +81,18 @@ public class ItemUtils {
         return item;
     }
 
-    /** Signs for crewmates — CanPlaceOn smooth_stone and gray_concrete (Adventure mode compatible) */
+    /** Signs — CanPlaceOn smooth_stone and gray_concrete via Adventure mode NBT */
     @SuppressWarnings("deprecation")
     public static ItemStack signStack(int amount) {
         ItemStack item = new ItemStack(Material.OAK_SIGN, amount);
         ItemMeta meta = item.getItemMeta();
         meta.setDisplayName("§fCommunications Board");
         meta.setLore(Collections.singletonList("§7Place on smooth stone or gray concrete"));
-        // setPlaceableKeys is the Bukkit API for CanPlaceOn in Adventure mode (1.13+)
-        meta.setPlaceableKeys(Arrays.asList(
-                org.bukkit.NamespacedKey.minecraft("smooth_stone"),
-                org.bukkit.NamespacedKey.minecraft("gray_concrete")
-        ));
+        // setPlaceableKeys takes Collection<Namespaced> — NamespacedKey implements Namespaced
+        java.util.List<org.bukkit.Namespaced> canPlaceOn = new java.util.ArrayList<>();
+        canPlaceOn.add(org.bukkit.NamespacedKey.minecraft("smooth_stone"));
+        canPlaceOn.add(org.bukkit.NamespacedKey.minecraft("gray_concrete"));
+        meta.setPlaceableKeys(canPlaceOn);
         item.setItemMeta(meta);
         return item;
     }
