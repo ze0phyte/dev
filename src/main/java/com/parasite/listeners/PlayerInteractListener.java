@@ -7,7 +7,6 @@ import com.parasite.game.GameState;
 import com.parasite.game.Role;
 import com.parasite.utils.ItemUtils;
 import org.bukkit.Material;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
@@ -27,7 +26,7 @@ public class PlayerInteractListener implements Listener {
         this.plugin = plugin;
     }
 
-    // ── Right-click on paper (voting / doctor save) ───────────────────────────
+    // ── Right-click on paper (voting only — doctor saves during round by right-clicking player) ──
     @EventHandler
     public void onInteract(PlayerInteractEvent event) {
         Player player = event.getPlayer();
@@ -40,28 +39,20 @@ public class PlayerInteractListener implements Listener {
 
         // Vote paper
         String target = ItemUtils.extractPaperTarget(item);
-        if (target != null) {
-            if (item.getItemMeta().getDisplayName().startsWith("§c§lVOTE:")) {
-                // Voting
-                gm.handleVote(player, target);
-                event.setCancelled(true);
-                return;
-            }
-            if (item.getItemMeta().getDisplayName().startsWith("§b§lSAVE:")) {
-                // Doctor save
-                gm.handleDoctorSave(player, target);
-                event.setCancelled(true);
-                return;
-            }
+        if (target != null && item.getItemMeta().getDisplayName().startsWith("§c§lVOTE:")) {
+            gm.handleVote(player, target);
+            event.setCancelled(true);
+            return;
         }
 
+        // Skip paper
         if (ItemUtils.isSkipPaper(item)) {
             gm.handleVote(player, "SKIP");
             event.setCancelled(true);
         }
     }
 
-    // ── Right-click ON a player (parasite infect or doctor save in round) ─────
+    // ── Right-click ON a player (parasite infect or doctor save during round) ─
     @EventHandler
     public void onInteractEntity(PlayerInteractAtEntityEvent event) {
         if (event.getHand() != EquipmentSlot.HAND) return;
@@ -82,7 +73,7 @@ public class PlayerInteractListener implements Listener {
             return;
         }
 
-        // DOCTOR: right-click empty hand = save (during round, not voting)
+        // DOCTOR: right-click empty hand = save (round only, NOT voting)
         if (gp.getRole() == Role.DOCTOR && emptyHand && gm.getState() == GameState.IN_ROUND) {
             if (gp.isSavedThisRound()) {
                 player.sendMessage(GameManager.PREFIX + "§cYou've already used your save this round!");
@@ -99,7 +90,7 @@ public class PlayerInteractListener implements Listener {
         }
     }
 
-    // ── Crossbow bolt hits player ─────────────────────────────────────────────
+    // ── Crossbow bolt hits player (scanner — no damage, just reveals name) ────
     @EventHandler
     public void onProjectileHit(EntityDamageByEntityEvent event) {
         if (!(event.getEntity() instanceof Player target)) return;
@@ -110,16 +101,11 @@ public class PlayerInteractListener implements Listener {
         GamePlayer sgp = gm.getGamePlayer(shooter.getUniqueId());
         if (sgp == null) return;
 
-        // Check if this was from a crossbow (projectile source)
-        // Cancel damage - scanner doesn't hurt
         event.setCancelled(true);
         gm.handleCrossbowHit(shooter, target);
     }
 
-    // ── G key = parasite swap (swap hand = F key by default, we use drop key Q or swap F) ─────
-    // Minecraft doesn't have a dedicated G key binding natively.
-    // We use the SWAP_OFFHAND event (F key) as the trigger for the parasite swap.
-    // Instruct players: parasite presses F to swap positions.
+    // ── F key = parasite position swap ───────────────────────────────────────
     @EventHandler
     public void onSwapHand(PlayerSwapHandItemsEvent event) {
         Player player = event.getPlayer();
@@ -128,7 +114,6 @@ public class PlayerInteractListener implements Listener {
         if (gp == null || gp.getRole() != Role.PARASITE || !gp.isAlive()) return;
         if (gm.getState() != GameState.IN_ROUND) return;
 
-        // Cancel the swap and use it as the ability trigger
         event.setCancelled(true);
         gm.handleParasiteSwap(player);
     }
