@@ -22,23 +22,20 @@ public class GameManager {
 
     private final ParasitePlugin plugin;
 
-    // ── State ─────────────────────────────────────────────────────────────────
     private GameState state = GameState.WAITING;
     private int currentDay = 0;
-    private int timer = 0;   // counts down, shown on scoreboard
+    private int timer = 0;
     private BukkitTask phaseTask;
     private BukkitTask scoreboardTask;
 
-    // ── Players ───────────────────────────────────────────────────────────────
     private final Map<UUID, GamePlayer> gamePlayers = new LinkedHashMap<>();
-    // Pre-game forced roles set by admin: player UUID -> forced role
     private final Map<UUID, Role> forcedRoles = new HashMap<>();
 
-    // ── Locations ─────────────────────────────────────────────────────────────
     private Location lobbyLocation;
-    private Location arenaLocation;   // centre of arena; players scatter around this
+    private Location arenaLocation;
+    private Location discussionLocation;
+    private Location votingLocation;
 
-    // ── Config shortcuts ──────────────────────────────────────────────────────
     private int cfgDayDuration;
     private int cfgDiscussionDuration;
     private int cfgVotingDuration;
@@ -47,10 +44,7 @@ public class GameManager {
     private int cfgMaxPlayers;
     private int cfgLobbyCountdown;
 
-    // ── Prefix ────────────────────────────────────────────────────────────────
     public static final String PREFIX = "§8[§5☣§8] §r";
-
-    // ─────────────────────────────────────────────────────────────────────────
 
     public GameManager(ParasitePlugin plugin) {
         this.plugin = plugin;
@@ -73,7 +67,6 @@ public class GameManager {
     //  LOBBY
     // ══════════════════════════════════════════════════════════════════════════
 
-    /** Called when a player does /pjoin */
     public void joinLobby(Player player) {
         if (state != GameState.WAITING && state != GameState.STARTING) {
             player.sendMessage(PREFIX + "§cA game is already running. Wait for the next round!");
@@ -90,42 +83,34 @@ public class GameManager {
 
         gamePlayers.put(player.getUniqueId(), new GamePlayer(player.getUniqueId(), player.getName()));
 
-        // Teleport to lobby
         if (lobbyLocation != null) teleportBlind(player, lobbyLocation);
 
-        // Adventure mode — no block breaking
         player.setGameMode(GameMode.ADVENTURE);
         player.getInventory().clear();
         player.setHealth(player.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue());
         player.setFoodLevel(20);
-        for (PotionEffect effect : player.getActivePotionEffects()) player.removePotionEffect(effect.getType());
-        
+        for (PotionEffect e : player.getActivePotionEffects()) player.removePotionEffect(e.getType());
+
         broadcastAll(PREFIX + "§a" + player.getName() + " §7boarded the ship! "
                 + "§8[§f" + gamePlayers.size() + "§8/§f" + cfgMaxPlayers + "§8]");
 
         ScoreboardUtils.updateTabList(this);
     }
 
-    /** Called when a player leaves mid-game or pre-game */
     public void removePlayer(Player player) {
         UUID id = player.getUniqueId();
         if (!gamePlayers.containsKey(id)) return;
-
-        GamePlayer gp = gamePlayers.get(id);
         gamePlayers.remove(id);
-
         broadcastAll(PREFIX + "§c" + player.getName() + " §7left. §8[§f" + gamePlayers.size() + "§8/§f" + cfgMaxPlayers + "§8]");
-
         if (state == GameState.WAITING || state == GameState.STARTING) {
             ScoreboardUtils.updateTabList(this);
         } else if (state != GameState.ENDED) {
-            // If a key role leaves during game, check win condition
             checkWinCondition();
         }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  GAME START  (op command: /parasite start)
+    //  GAME START
     // ══════════════════════════════════════════════════════════════════════════
 
     public boolean startGame(Player admin) {
@@ -166,29 +151,24 @@ public class GameManager {
         currentDay = 0;
         assignRoles();
 
-        // Teleport all to arena (spread around centre) + apply game setup
         List<Player> active = getAlivePlayers();
         for (Player p : active) {
-            GamePlayer gp = gamePlayers.get(p.getUniqueId());
             p.setGameMode(GameMode.ADVENTURE);
             p.getInventory().clear();
             p.setHealth(p.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue());
             p.setFoodLevel(20);
-            for (PotionEffect effect : p.getActivePotionEffects()) p.removePotionEffect(effect.getType());
+            for (PotionEffect e : p.getActivePotionEffects()) p.removePotionEffect(e.getType());
             SkinUtils.setCrewSkin(p);
         }
 
-        // Spread players around arena, teleport blind
         List<Location> spawnPoints = generateSpawnRing(arenaLocation, active.size(), 8.0);
         int i = 0;
         for (Player p : active) {
             teleportBlind(p, spawnPoints.get(i++));
         }
 
-        // Hide names during rounds
         SkinUtils.hideAllNames();
 
-        // Brief reveal then start day
         new BukkitRunnable() {
             @Override
             public void run() {
@@ -199,17 +179,15 @@ public class GameManager {
                 }
                 startDay();
             }
-        }.runTaskLater(plugin, 60L); // 3s after teleport
+        }.runTaskLater(plugin, 60L);
     }
 
     private void assignRoles() {
         List<UUID> ids = new ArrayList<>(gamePlayers.keySet());
         Collections.shuffle(ids);
 
-        // Reset all
         for (GamePlayer gp : gamePlayers.values()) gp.resetFull();
 
-        // Apply forced roles first
         Set<UUID> assigned = new HashSet<>();
         for (Map.Entry<UUID, Role> entry : forcedRoles.entrySet()) {
             if (gamePlayers.containsKey(entry.getKey())) {
@@ -219,11 +197,9 @@ public class GameManager {
         }
         forcedRoles.clear();
 
-        // Check if parasite was force-assigned
         boolean hasParasite = gamePlayers.values().stream().anyMatch(gp -> gp.getRole() == Role.PARASITE);
         boolean hasDoctor   = gamePlayers.values().stream().anyMatch(gp -> gp.getRole() == Role.DOCTOR);
 
-        // Random fill remaining roles
         List<UUID> unassigned = ids.stream().filter(id -> !assigned.contains(id)).collect(Collectors.toList());
         int idx = 0;
         if (!hasParasite && !unassigned.isEmpty()) {
@@ -243,10 +219,8 @@ public class GameManager {
         state = GameState.IN_ROUND;
         timer = cfgDayDuration;
 
-        // Reset round-specific state
         for (GamePlayer gp : gamePlayers.values()) gp.resetRound();
 
-        // Give items
         for (Player p : getAlivePlayers()) {
             giveRoundItems(p, gamePlayers.get(p.getUniqueId()).getRole());
         }
@@ -277,6 +251,35 @@ public class GameManager {
     private void startDiscussion() {
         state = GameState.DISCUSSION;
         timer = cfgDiscussionDuration;
+
+        // ── Kill infected players BEFORE discussion starts ────────────────────
+        List<String> infectedDied = new ArrayList<>();
+        for (GamePlayer gp : gamePlayers.values()) {
+            if (!gp.isAlive()) continue;
+            if (gp.isInfected() && !gp.isSavedThisRound()) {
+                gp.setAlive(false);
+                infectedDied.add(gp.getName());
+                Player dp = Bukkit.getPlayer(gp.getUUID());
+                if (dp != null) {
+                    dp.setGameMode(GameMode.SPECTATOR);
+                    dp.sendTitle("§4§l☠ INFECTED", "§7The parasite consumed you...", 10, 80, 20);
+                }
+            }
+        }
+
+        // Announce infection deaths before discussion
+        if (!infectedDied.isEmpty()) {
+            for (String dn : infectedDied) {
+                broadcastAll(PREFIX + "§4☣ " + dn + " §7was consumed by the parasite overnight!");
+            }
+        } else {
+            broadcastAll(PREFIX + "§7No infection deaths this round.");
+        }
+
+        // ── Teleport to discussion area if set ────────────────────────────────
+        if (discussionLocation != null) {
+            for (Player p : Bukkit.getOnlinePlayers()) teleportBlind(p, discussionLocation);
+        }
 
         // Show names during discussion
         SkinUtils.showAllNames();
@@ -312,12 +315,13 @@ public class GameManager {
         state = GameState.VOTING;
         timer = cfgVotingDuration;
 
-        // Still show names during voting
-        // SkinUtils.showAllNames(); // already shown from discussion
+        // ── Teleport to voting area if set ────────────────────────────────────
+        if (votingLocation != null) {
+            for (Player p : getAlivePlayers()) teleportBlind(p, votingLocation);
+        }
 
         for (Player p : getAlivePlayers()) {
-            addBlindness(p, 3);
-            giveVotingItems(p, gamePlayers.get(p.getUniqueId()).getRole());
+            giveVotingItems(p);
             p.sendTitle("§c§lVOTING", "§7Right-click a paper to vote!", 10, 40, 20);
             p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1f, 0.7f);
         }
@@ -335,7 +339,6 @@ public class GameManager {
         }.runTaskTimer(plugin, 20L, 20L);
     }
 
-    /** Called when a player right-clicks a vote paper */
     public void handleVote(Player voter, String targetName) {
         if (state != GameState.VOTING) return;
         GamePlayer gp = gamePlayers.get(voter.getUniqueId());
@@ -350,7 +353,6 @@ public class GameManager {
             if (target == null) { voter.sendMessage(PREFIX + "§cThat player isn't online."); return; }
             GamePlayer tgp = gamePlayers.get(target.getUniqueId());
             if (tgp == null || !tgp.isAlive()) { voter.sendMessage(PREFIX + "§cThat player is already dead."); return; }
-
             gp.setVotedFor(target.getUniqueId());
             voter.sendMessage(PREFIX + "§7You voted for §c" + targetName + "§7.");
         }
@@ -359,39 +361,12 @@ public class GameManager {
         voter.sendTitle("§a§l✓ VOTED", "§7Waiting for others...", 5, 40, 10);
         voter.playSound(voter.getLocation(), Sound.UI_BUTTON_CLICK, 1f, 1f);
 
-        // Early finish if everyone voted
         long aliveCount = gamePlayers.values().stream().filter(GamePlayer::isAlive).count();
         long votedCount = gamePlayers.values().stream().filter(g -> g.isAlive() && g.hasVoted()).count();
         if (votedCount >= aliveCount) {
             if (phaseTask != null) { phaseTask.cancel(); phaseTask = null; }
             resolveVoting();
         }
-    }
-
-    /** Called when doctor right-clicks a save paper */
-    public void handleDoctorSave(Player doctor, String targetName) {
-        if (state != GameState.VOTING) return;
-        GamePlayer docGP = gamePlayers.get(doctor.getUniqueId());
-        if (docGP == null || docGP.getRole() != Role.DOCTOR || !docGP.isAlive()) return;
-        if (docGP.isSavedThisRound()) {
-            doctor.sendMessage(PREFIX + "§cYou've already used your save this round!");
-            return;
-        }
-
-        Player target = Bukkit.getPlayerExact(targetName);
-        if (target == null) { doctor.sendMessage(PREFIX + "§cPlayer not found."); return; }
-        GamePlayer tgp = gamePlayers.get(target.getUniqueId());
-        if (tgp == null || !tgp.isAlive()) { doctor.sendMessage(PREFIX + "§cThat player is already dead."); return; }
-
-        tgp.setSavedThisRound(true);
-        docGP.setSavedThisRound(true);
-        doctor.sendMessage(PREFIX + "§b✚ You protected §f" + targetName + " §bfrom infection tonight!");
-        doctor.playSound(doctor.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1.5f);
-
-        // Remove save papers from doctor's inventory
-        doctor.getInventory().clear();
-        // Re-give vote papers only
-        giveVotingItemsOnly(doctor);
     }
 
     private void resolveVoting() {
@@ -416,22 +391,7 @@ public class GameManager {
             if (e.getValue() > maxVotes) { maxVotes = e.getValue(); ejected = e.getKey(); tie = false; }
             else if (e.getValue() == maxVotes) { tie = true; }
         }
-        if (skipCount > maxVotes) { ejected = null; tie = false; } // skips win
-
-        // ── Infection deaths ─────────────────────────────────────────────────
-        List<String> infectedDied = new ArrayList<>();
-        for (GamePlayer gp : gamePlayers.values()) {
-            if (!gp.isAlive()) continue;
-            if (gp.isInfected() && !gp.isSavedThisRound()) {
-                gp.setAlive(false);
-                infectedDied.add(gp.getName());
-                Player dp = Bukkit.getPlayer(gp.getUUID());
-                if (dp != null) {
-                    dp.setGameMode(GameMode.SPECTATOR);
-                    dp.sendTitle("§4§l☠ INFECTED", "§7The parasite consumed you...", 10, 80, 20);
-                }
-            }
-        }
+        if (skipCount > maxVotes) { ejected = null; tie = false; }
 
         // ── Ejection ─────────────────────────────────────────────────────────
         final UUID finalEjected = (!tie && ejected != null) ? ejected : null;
@@ -450,13 +410,11 @@ public class GameManager {
         }
 
         final Role finalEjectedRole = ejectedRole;
-
-        // ── Blindness + results broadcast ────────────────────────────────────
-        for (Player p : Bukkit.getOnlinePlayers()) addBlindness(p, 5);
-
         final Map<UUID, Integer> finalTally = tally;
         final int finalSkip = skipCount;
         final boolean finalTie = tie;
+
+        for (Player p : Bukkit.getOnlinePlayers()) addBlindness(p, 5);
 
         new BukkitRunnable() {
             @Override
@@ -465,7 +423,6 @@ public class GameManager {
                 sb.append("\n§8§m══════════════════════════§r\n");
                 sb.append("§e§l       DAY ").append(currentDay).append(" RESULTS\n\n");
 
-                // Vote breakdown
                 for (Map.Entry<UUID, Integer> e : finalTally.entrySet()) {
                     GamePlayer vgp = gamePlayers.get(e.getKey());
                     String nm = vgp != null ? vgp.getName() : "?";
@@ -474,7 +431,6 @@ public class GameManager {
                 if (finalSkip > 0) sb.append("  §7Skip §8— §7").append(finalSkip).append(" vote").append(finalSkip != 1 ? "s" : "").append("\n");
                 sb.append("\n");
 
-                // Ejection result
                 if (finalEjected != null) {
                     GamePlayer egp = gamePlayers.get(finalEjected);
                     String nm = egp != null ? egp.getName() : "?";
@@ -488,16 +444,6 @@ public class GameManager {
                     sb.append("§7  The crew skipped — nobody was ejected.\n");
                 }
 
-                // Infection deaths
-                if (!infectedDied.isEmpty()) {
-                    sb.append("\n");
-                    for (String dn : infectedDied) {
-                        sb.append("§4  ☣ ").append(dn).append(" succumbed to infection!\n");
-                    }
-                } else {
-                    sb.append("§a  No infection deaths this round.\n");
-                }
-
                 sb.append("§8§m══════════════════════════§r");
                 broadcastAll(sb.toString());
 
@@ -505,12 +451,10 @@ public class GameManager {
                     p.playSound(p.getLocation(), Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 0.4f, 0.5f);
                 }
 
-                // Check win condition then continue
                 new BukkitRunnable() {
                     @Override
                     public void run() {
                         if (!checkWinCondition()) {
-                            // Teleport alive players to random spots, hide names, start next day
                             scatterAlivePlayers();
                             SkinUtils.hideAllNames();
                             new BukkitRunnable() {
@@ -525,26 +469,37 @@ public class GameManager {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    //  SKIP COMMANDS
+    // ══════════════════════════════════════════════════════════════════════════
+
+    public void skipToDiscussion() {
+        if (phaseTask != null) { phaseTask.cancel(); phaseTask = null; }
+        startDiscussion();
+    }
+
+    public void skipToVoteEnd() {
+        if (phaseTask != null) { phaseTask.cancel(); phaseTask = null; }
+        resolveVoting();
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     //  PARASITE ABILITIES
     // ══════════════════════════════════════════════════════════════════════════
 
-    /** Parasite right-clicks empty hand on a player to infect them */
     public void handleInfect(Player parasite, Player target) {
         if (state != GameState.IN_ROUND) return;
         GamePlayer pgp = gamePlayers.get(parasite.getUniqueId());
         GamePlayer tgp = gamePlayers.get(target.getUniqueId());
-        if (pgp == null || pgp.getRole() != Role.PARASITE || !pgp.isAlive()) return;
-        if (tgp == null || !tgp.isAlive()) return;
+        if (pgp == null || tgp == null) return;
+        if (!pgp.isAlive() || !tgp.isAlive()) return;
         if (tgp.getRole() == Role.PARASITE) return;
         if (tgp.isInfected()) { parasite.sendMessage(PREFIX + "§cThat crewmate is already infected."); return; }
 
         tgp.setInfected(true);
-        parasite.sendMessage(PREFIX + "§4☣ §7You infected §f" + target.getName() + "§7! They will die at end of day unless the Doctor saves them.");
+        parasite.sendMessage(PREFIX + "§4☣ §7You infected §f" + target.getName() + "§7! They will die before discussion unless the Doctor saves them.");
         parasite.playSound(parasite.getLocation(), Sound.ENTITY_SPIDER_AMBIENT, 1f, 0.5f);
-        // Target doesn't know they're infected - no message to them
     }
 
-    /** Parasite presses G key - swap with random crewmate */
     public void handleParasiteSwap(Player parasite) {
         if (state != GameState.IN_ROUND) return;
         GamePlayer pgp = gamePlayers.get(parasite.getUniqueId());
@@ -558,32 +513,32 @@ public class GameManager {
             return;
         }
 
-        // Pick a random alive non-parasite player
         List<Player> candidates = getAlivePlayers().stream()
                 .filter(p -> !p.getUniqueId().equals(parasite.getUniqueId()))
                 .collect(Collectors.toList());
-
         if (candidates.isEmpty()) { parasite.sendMessage(PREFIX + "§cNo one to swap with!"); return; }
 
         Player target = candidates.get(new Random().nextInt(candidates.size()));
         Location parasiteLoc = parasite.getLocation().clone();
         Location targetLoc = target.getLocation().clone();
 
-        // Swap silently - no blindness, just teleport without effects so it looks seamless
+        // Blind everyone during swap
+        for (Player p : getAlivePlayers()) {
+            p.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 40, 255, false, false));
+        }
+
         parasite.teleport(targetLoc);
         target.teleport(parasiteLoc);
 
         pgp.setLastSwapMillis(now);
         parasite.sendMessage(PREFIX + "§5You swapped positions with someone on the ship!");
         parasite.playSound(parasite.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 0.2f, 2f);
-        // No message to target - they shouldn't know
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     //  CROSSBOW SCAN
     // ══════════════════════════════════════════════════════════════════════════
 
-    /** Called when a crossbow projectile hits a player */
     public void handleCrossbowHit(Player shooter, Player target) {
         if (state != GameState.IN_ROUND && state != GameState.DISCUSSION) return;
         GamePlayer sgp = gamePlayers.get(shooter.getUniqueId());
@@ -591,11 +546,10 @@ public class GameManager {
         if (sgp.hasUsedCrossbow()) { shooter.sendMessage(PREFIX + "§cYou've already used your scanner this round."); return; }
 
         sgp.setUsedCrossbow(true);
-        shooter.sendMessage(PREFIX + "§eScanner result: §f" + target.getName() + " §7— you hit §f" + target.getName() + "!");
+        shooter.sendMessage(PREFIX + "§eScanner result: §f" + target.getName());
         shooter.sendTitle("§e§lSCANNED", "§f" + target.getName(), 5, 40, 10);
         shooter.playSound(shooter.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1.5f);
 
-        // Remove crossbow from inventory
         for (int i = 0; i < shooter.getInventory().getSize(); i++) {
             ItemStack it = shooter.getInventory().getItem(i);
             if (it != null && it.getType() == Material.CROSSBOW) {
@@ -609,32 +563,22 @@ public class GameManager {
     //  WIN CONDITION
     // ══════════════════════════════════════════════════════════════════════════
 
-    /** Returns true if game ended */
     private boolean checkWinCondition() {
         long parasites = gamePlayers.values().stream().filter(gp -> gp.isAlive() && gp.getRole() == Role.PARASITE).count();
         long crew = gamePlayers.values().stream().filter(gp -> gp.isAlive() && gp.getRole() != Role.PARASITE).count();
-
-        if (parasites == 0) { endGame(false); return true; }  // crew wins
-        if (parasites >= crew) { endGame(true); return true; } // parasite wins
+        if (parasites == 0) { endGame(false); return true; }
+        if (parasites >= crew) { endGame(true); return true; }
         return false;
     }
 
     private void endGame(boolean parasiteWon) {
         state = GameState.ENDED;
         if (phaseTask != null) { phaseTask.cancel(); phaseTask = null; }
-
         SkinUtils.showAllNames();
 
-        String title, sub;
-        if (parasiteWon) {
-            title = "§4§l☣ PARASITE WINS ☣";
-            sub = "§cThe parasite consumed the crew...";
-        } else {
-            title = "§a§lCREW WINS!";
-            sub = "§7The parasite was eliminated!";
-        }
+        String title = parasiteWon ? "§4§l☣ PARASITE WINS ☣" : "§a§lCREW WINS!";
+        String sub   = parasiteWon ? "§cThe parasite consumed the crew..." : "§7The parasite was eliminated!";
 
-        // Reveal roles
         StringBuilder reveal = new StringBuilder("\n§8§m══════════════════════════§r\n§e§l         GAME OVER\n\n");
         for (GamePlayer gp : gamePlayers.values()) {
             String status = gp.isAlive() ? "§a(Alive)" : "§c(Dead)";
@@ -652,12 +596,9 @@ public class GameManager {
             SkinUtils.restoreOriginalSkin(p);
         }
 
-        // Clean up after 10 seconds
         new BukkitRunnable() {
             @Override
-            public void run() {
-                resetGame();
-            }
+            public void run() { resetGame(); }
         }.runTaskLater(plugin, 200L);
     }
 
@@ -667,14 +608,10 @@ public class GameManager {
 
     private void giveRoundItems(Player p, Role role) {
         p.getInventory().clear();
-
-        // Everyone gets: 2x sign stacks + crossbow
         p.getInventory().setItem(0, ItemUtils.signStack(16));
         p.getInventory().setItem(1, ItemUtils.signStack(16));
         p.getInventory().setItem(2, ItemUtils.crewAxe());
         p.getInventory().setItem(3, ItemUtils.scanCrossbow());
-
-        // Role item in slot 8 (last hotbar)
         if (role == Role.PARASITE) {
             p.getInventory().setItem(8, ItemUtils.parasiteIndicator());
         } else if (role == Role.DOCTOR) {
@@ -682,24 +619,7 @@ public class GameManager {
         }
     }
 
-    private void giveVotingItems(Player p, Role role) {
-        p.getInventory().clear();
-        // Vote papers for all alive players except self
-        int slot = 0;
-        for (GamePlayer gp : gamePlayers.values()) {
-            if (!gp.isAlive()) continue;
-            if (gp.getUUID().equals(p.getUniqueId())) continue;
-            if (slot < 8) p.getInventory().setItem(slot++, ItemUtils.votePaper(gp.getName()));
-        }
-        p.getInventory().setItem(8, ItemUtils.skipPaper());
-
-        // Doctor also gets save papers
-        if (role == Role.DOCTOR) {
-            giveSavePapers(p);
-        }
-    }
-
-    private void giveVotingItemsOnly(Player p) {
+    private void giveVotingItems(Player p) {
         p.getInventory().clear();
         int slot = 0;
         for (GamePlayer gp : gamePlayers.values()) {
@@ -708,39 +628,10 @@ public class GameManager {
             if (slot < 8) p.getInventory().setItem(slot++, ItemUtils.votePaper(gp.getName()));
         }
         p.getInventory().setItem(8, ItemUtils.skipPaper());
-    }
-
-    private void giveSavePapers(Player p) {
-        // Save papers go in offhand or overflow
-        int slot = 0;
-        for (GamePlayer gp : gamePlayers.values()) {
-            if (!gp.isAlive()) continue;
-            if (gp.getUUID().equals(p.getUniqueId())) continue;
-            // Place save papers after vote papers - check next available slot
-        }
-        // Simpler: give a dedicated save paper book in a separate row
-        // We'll add save papers after vote papers
-        p.getInventory().addItem(ItemUtils.savePaper("(choose who to save)"));
-        // Actually replace with targeted save papers
-        p.getInventory().clear();
-        int s = 0;
-        for (GamePlayer gp : gamePlayers.values()) {
-            if (!gp.isAlive()) continue;
-            if (gp.getUUID().equals(p.getUniqueId())) continue;
-            if (s < 9) p.getInventory().setItem(s++, ItemUtils.savePaper(gp.getName()));
-        }
-        // Second row: vote papers
-        s = 9;
-        for (GamePlayer gp : gamePlayers.values()) {
-            if (!gp.isAlive()) continue;
-            if (gp.getUUID().equals(p.getUniqueId())) continue;
-            if (s < 18) p.getInventory().setItem(s++, ItemUtils.votePaper(gp.getName()));
-        }
-        p.getInventory().setItem(8, ItemUtils.skipPaper());
+        // Doctor save papers REMOVED — doctor saves during round only
     }
 
     private void stripCombatItems(Player p) {
-        // Remove axe and crossbow during discussion/voting
         for (int i = 0; i < p.getInventory().getSize(); i++) {
             ItemStack it = p.getInventory().getItem(i);
             if (it == null) continue;
@@ -765,10 +656,10 @@ public class GameManager {
         p.sendTitle(role.getDisplay(), getRoleSub(role), 10, 80, 20);
         p.sendMessage(PREFIX + "§7You are the " + role.getDisplay());
         if (role == Role.PARASITE) {
-            p.sendMessage(PREFIX + "§4Infect crew with right-click. Press §cG §4to swap positions every 2 minutes.");
+            p.sendMessage(PREFIX + "§4Infect crew with right-click. Press §cF §4to swap positions every 2 minutes.");
             p.playSound(p.getLocation(), Sound.AMBIENT_CAVE, 1f, 0.5f);
         } else if (role == Role.DOCTOR) {
-            p.sendMessage(PREFIX + "§bRight-click a player to save them from infection each night.");
+            p.sendMessage(PREFIX + "§bRight-click a player during the round to save them from infection.");
             p.playSound(p.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1.5f);
         } else {
             p.sendMessage(PREFIX + "§7Find the parasite. Use your §esigns §7and §escanner§7.");
@@ -779,19 +670,16 @@ public class GameManager {
     private String getRoleSub(Role role) {
         return switch (role) {
             case PARASITE -> "§4Infect and destroy the crew!";
-            case DOCTOR -> "§bProtect the crew from infection!";
+            case DOCTOR   -> "§bProtect the crew from infection!";
             case CREWMATE -> "§7Find and eject the parasite!";
         };
     }
 
-    /** Teleport a player with blindness so the transition isn't jarring */
     public void teleportBlind(Player player, Location location) {
         addBlindness(player, 3);
         new BukkitRunnable() {
             @Override
-            public void run() {
-                player.teleport(location);
-            }
+            public void run() { player.teleport(location); }
         }.runTaskLater(plugin, 10L);
     }
 
@@ -799,7 +687,6 @@ public class GameManager {
         player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, seconds * 20, 1, false, false));
     }
 
-    /** Generate spawn points in a ring around a centre location */
     private List<Location> generateSpawnRing(Location centre, int count, double radius) {
         List<Location> locs = new ArrayList<>();
         if (count == 0) return locs;
@@ -817,8 +704,6 @@ public class GameManager {
         for (Player p : Bukkit.getOnlinePlayers()) p.sendMessage(message);
         Bukkit.getConsoleSender().sendMessage(message);
     }
-
-    // ── Scoreboard updater ────────────────────────────────────────────────────
 
     private void startScoreboardUpdater() {
         scoreboardTask = new BukkitRunnable() {
@@ -843,16 +728,29 @@ public class GameManager {
         plugin.saveConfig();
     }
 
+    public void setDiscussionLocation(Location loc) {
+        discussionLocation = loc;
+        plugin.getConfig().set("locations.discussion", LocationUtils.serialize(loc));
+        plugin.saveConfig();
+    }
+
+    public void setVotingLocation(Location loc) {
+        votingLocation = loc;
+        plugin.getConfig().set("locations.voting", LocationUtils.serialize(loc));
+        plugin.saveConfig();
+    }
+
     private void loadLocations() {
-        lobbyLocation = LocationUtils.deserialize(plugin.getConfig().getString("locations.lobby"));
-        arenaLocation  = LocationUtils.deserialize(plugin.getConfig().getString("locations.arena"));
+        lobbyLocation      = LocationUtils.deserialize(plugin.getConfig().getString("locations.lobby"));
+        arenaLocation      = LocationUtils.deserialize(plugin.getConfig().getString("locations.arena"));
+        discussionLocation = LocationUtils.deserialize(plugin.getConfig().getString("locations.discussion"));
+        votingLocation     = LocationUtils.deserialize(plugin.getConfig().getString("locations.voting"));
     }
 
     // ── Force role ────────────────────────────────────────────────────────────
 
     public void forceRole(Player target, Role role) {
         forcedRoles.put(target.getUniqueId(), role);
-        // Also update if they're already in gamePlayers (pre-game)
         GamePlayer gp = gamePlayers.get(target.getUniqueId());
         if (gp != null) gp.setRole(role);
     }
@@ -878,10 +776,11 @@ public class GameManager {
         state = GameState.WAITING;
         SkinUtils.showAllNames();
         SkinUtils.cleanup();
+        ScoreboardUtils.clearAll();
         for (Player p : Bukkit.getOnlinePlayers()) {
             SkinUtils.restoreOriginalSkin(p);
             p.setGameMode(GameMode.SURVIVAL);
-            for (PotionEffect effect : p.getActivePotionEffects()) p.removePotionEffect(effect.getType());
+            for (PotionEffect e : p.getActivePotionEffects()) p.removePotionEffect(e.getType());
             if (lobbyLocation != null) p.teleport(lobbyLocation);
         }
     }
@@ -916,4 +815,6 @@ public class GameManager {
 
     public Location getLobbyLocation() { return lobbyLocation; }
     public Location getArenaLocation() { return arenaLocation; }
+    public Location getDiscussionLocation() { return discussionLocation; }
+    public Location getVotingLocation() { return votingLocation; }
 }

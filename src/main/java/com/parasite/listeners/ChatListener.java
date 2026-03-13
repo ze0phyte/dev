@@ -24,13 +24,14 @@ public class ChatListener implements Listener {
         GameManager gm = plugin.getGameManager();
         GamePlayer gp = gm.getGamePlayer(player.getUniqueId());
 
-        if (!gm.isRunning()) return;
-        if (gp == null) return; // spectator, let chat through normally
+        // Not in game at all — let chat through normally
+        if (!gm.isRunning() || gp == null) return;
 
-        // Dead players can only talk to each other (dead chat)
+        GameState state = gm.getState();
+
+        // Dead players only talk to other dead players + ops
         if (!gp.isAlive()) {
             event.setCancelled(true);
-            // Send only to other dead players and ops
             String msg = "§8[☠ DEAD] §7" + player.getName() + ": §8" + event.getMessage();
             for (Player p : plugin.getServer().getOnlinePlayers()) {
                 GamePlayer tp = gm.getGamePlayer(p.getUniqueId());
@@ -41,18 +42,27 @@ public class ChatListener implements Listener {
             return;
         }
 
-        // During IN_ROUND - don't show names (anonymous signs are for communication, but chat allowed with name)
-        // Format: no special restriction, but keep it themed
-        GameState state = gm.getState();
+        // IN_ROUND — no talking at all
         if (state == GameState.IN_ROUND) {
-            // Chat is allowed, name shown since they're talking
-            event.setFormat("§7[§fCrew§7] §f" + player.getName() + "§8: §f%2$s");
-        } else if (state == GameState.DISCUSSION) {
-            event.setFormat("§e[☎] §f" + player.getName() + "§8: §e%2$s");
-        } else if (state == GameState.VOTING) {
-            // Mute chat during voting - focus on the vote
+            event.setCancelled(true);
+            player.sendMessage(GameManager.PREFIX + "§cYou can't talk during the round. Use signs!");
+            return;
+        }
+
+        // VOTING — no talking
+        if (state == GameState.VOTING) {
             event.setCancelled(true);
             player.sendMessage(GameManager.PREFIX + "§cNo talking during the vote!");
+            return;
         }
+
+        // DISCUSSION — talking allowed
+        if (state == GameState.DISCUSSION) {
+            event.setFormat("§e[☎] §f" + player.getName() + "§8: §e%2$s");
+            return;
+        }
+
+        // Any other state (STARTING, ROUND_END etc) — cancel to be safe
+        event.setCancelled(true);
     }
 }

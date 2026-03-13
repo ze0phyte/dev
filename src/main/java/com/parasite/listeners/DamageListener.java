@@ -3,7 +3,6 @@ package com.parasite.listeners;
 import com.parasite.ParasitePlugin;
 import com.parasite.game.GameManager;
 import com.parasite.game.GamePlayer;
-import com.parasite.game.GameState;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -19,36 +18,42 @@ public class DamageListener implements Listener {
         this.plugin = plugin;
     }
 
-    /** Block all player damage during the game - no friendly fire, no fall damage */
+    // Cancel ALL damage to any game player (fall, void, fire, etc.)
     @EventHandler
     public void onDamage(EntityDamageEvent event) {
         if (!(event.getEntity() instanceof Player player)) return;
         GameManager gm = plugin.getGameManager();
-        if (!gm.isRunning()) return;
         GamePlayer gp = gm.getGamePlayer(player.getUniqueId());
-        if (gp == null) return;
-
-        // Cancel ALL damage to game players
-        event.setCancelled(true);
+        // Cancel if in lobby OR game running
+        if (gp != null) event.setCancelled(true);
     }
 
-    /** Also cancel entity-by-entity so melee hits do nothing */
+    // Cancel PvP — if either the attacker or victim is in the game
     @EventHandler
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
-        if (!(event.getEntity() instanceof Player player)) return;
         GameManager gm = plugin.getGameManager();
-        if (!gm.isRunning()) return;
-        if (gm.getGamePlayer(player.getUniqueId()) != null) {
-            event.setCancelled(true);
+
+        // Victim is a game player
+        if (event.getEntity() instanceof Player victim) {
+            if (gm.getGamePlayer(victim.getUniqueId()) != null) {
+                event.setCancelled(true);
+                return;
+            }
+        }
+
+        // Attacker is a game player
+        if (event.getDamager() instanceof Player attacker) {
+            if (gm.getGamePlayer(attacker.getUniqueId()) != null) {
+                event.setCancelled(true);
+            }
         }
     }
 
-    /** Prevent hunger drain */
+    // Prevent hunger drain
     @EventHandler
     public void onHunger(FoodLevelChangeEvent event) {
         if (!(event.getEntity() instanceof Player player)) return;
         GameManager gm = plugin.getGameManager();
-        if (!gm.isRunning()) return;
         if (gm.getGamePlayer(player.getUniqueId()) != null) {
             event.setCancelled(true);
         }

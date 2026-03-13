@@ -1,9 +1,10 @@
 package com.parasite.commands;
-import com.parasite.utils.ScoreboardUtils;
+
 import com.parasite.ParasitePlugin;
 import com.parasite.game.GameManager;
 import com.parasite.game.GameState;
 import com.parasite.game.Role;
+import com.parasite.utils.ScoreboardUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -27,10 +28,7 @@ public class ParasiteCommand implements CommandExecutor {
             return true;
         }
 
-        if (args.length == 0) {
-            sendHelp(sender);
-            return true;
-        }
+        if (args.length == 0) { sendHelp(sender); return true; }
 
         switch (args[0].toLowerCase()) {
 
@@ -57,8 +55,19 @@ public class ParasiteCommand implements CommandExecutor {
                 sender.sendMessage(GameManager.PREFIX + "§aArena centre set!");
             }
 
+            case "setdiscussion" -> {
+                if (!(sender instanceof Player p)) { sender.sendMessage("§cMust be a player."); return true; }
+                gm.setDiscussionLocation(p.getLocation());
+                sender.sendMessage(GameManager.PREFIX + "§aDiscussion area set!");
+            }
+
+            case "setvoting" -> {
+                if (!(sender instanceof Player p)) { sender.sendMessage("§cMust be a player."); return true; }
+                gm.setVotingLocation(p.getLocation());
+                sender.sendMessage(GameManager.PREFIX + "§aVoting area set!");
+            }
+
             case "setrole" -> {
-                // /parasite setrole <player> <parasite|doctor|crewmate>
                 if (args.length < 3) { sender.sendMessage(GameManager.PREFIX + "§cUsage: /parasite setrole <player> <parasite|doctor|crewmate>"); return true; }
                 Player target = Bukkit.getPlayer(args[1]);
                 if (target == null) { sender.sendMessage(GameManager.PREFIX + "§cPlayer not found: " + args[1]); return true; }
@@ -70,12 +79,28 @@ public class ParasiteCommand implements CommandExecutor {
             }
 
             case "addplayer" -> {
-                // /parasite addplayer <player>  — force-add to lobby
                 if (args.length < 2) { sender.sendMessage(GameManager.PREFIX + "§cUsage: /parasite addplayer <player>"); return true; }
                 Player target = Bukkit.getPlayer(args[1]);
                 if (target == null) { sender.sendMessage(GameManager.PREFIX + "§cPlayer not found."); return true; }
                 gm.joinLobby(target);
                 sender.sendMessage(GameManager.PREFIX + "§aAdded §f" + target.getName() + " §ato the lobby.");
+            }
+
+            case "skipday" -> {
+                if (!gm.isRunning()) { sender.sendMessage(GameManager.PREFIX + "§cNo game running."); return true; }
+                gm.skipToDiscussion();
+                sender.sendMessage(GameManager.PREFIX + "§aSkipped to discussion!");
+            }
+
+            case "skipvote" -> {
+                if (!gm.isRunning()) { sender.sendMessage(GameManager.PREFIX + "§cNo game running."); return true; }
+                gm.skipToVoteEnd();
+                sender.sendMessage(GameManager.PREFIX + "§aSkipped voting!");
+            }
+
+            case "info" -> {
+                if (!(sender instanceof Player p)) { sender.sendMessage("§cMust be a player."); return true; }
+                ScoreboardUtils.toggleInfo(p, gm);
             }
 
             case "status" -> {
@@ -85,14 +110,11 @@ public class ParasiteCommand implements CommandExecutor {
                 sender.sendMessage("§7Day: §f" + gm.getCurrentDay());
                 sender.sendMessage("§7Players in game: §f" + gm.getPlayerCount());
                 sender.sendMessage("§7Alive: §f" + gm.getAlivePlayers().size());
-                sender.sendMessage("§7Lobby: §f" + (gm.getLobbyLocation() != null ? "Set" : "§cNot set"));
-                sender.sendMessage("§7Arena: §f" + (gm.getArenaLocation() != null ? "Set" : "§cNot set"));
+                sender.sendMessage("§7Lobby: §f"      + (gm.getLobbyLocation()      != null ? "§aSet" : "§cNot set"));
+                sender.sendMessage("§7Arena: §f"      + (gm.getArenaLocation()      != null ? "§aSet" : "§cNot set"));
+                sender.sendMessage("§7Discussion: §f" + (gm.getDiscussionLocation() != null ? "§aSet" : "§cNot set"));
+                sender.sendMessage("§7Voting: §f"     + (gm.getVotingLocation()     != null ? "§aSet" : "§cNot set"));
                 sender.sendMessage("§8§m──────────────────────────");
-            }
-           
-            case "info" -> {
-             if (!(sender instanceof Player p)) { sender.sendMessage("§cMust be a player."); return true; }
-             ScoreboardUtils.toggleInfo(p, gm);
             }
 
             default -> sendHelp(sender);
@@ -107,9 +129,14 @@ public class ParasiteCommand implements CommandExecutor {
         sender.sendMessage("§e/parasite stop §7— Force stop");
         sender.sendMessage("§e/parasite setlobby §7— Set lobby spawn");
         sender.sendMessage("§e/parasite setarena §7— Set arena centre");
+        sender.sendMessage("§e/parasite setdiscussion §7— Set discussion area");
+        sender.sendMessage("§e/parasite setvoting §7— Set voting area");
         sender.sendMessage("§e/parasite setrole <player> <role> §7— Force a role");
         sender.sendMessage("§e/parasite addplayer <player> §7— Add to lobby");
-        sender.sendMessage("§e/parasite status §7— Show game info");
+        sender.sendMessage("§e/parasite skipday §7— Skip to discussion now");
+        sender.sendMessage("§e/parasite skipvote §7— End voting now");
+        sender.sendMessage("§e/parasite info §7— Toggle info sidebar");
+        sender.sendMessage("§e/parasite status §7— Show game info in chat");
         sender.sendMessage("§8§m──────────────────────────");
     }
 
