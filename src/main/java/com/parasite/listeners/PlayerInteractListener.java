@@ -8,10 +8,8 @@ import com.parasite.game.Role;
 import com.parasite.utils.ItemUtils;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
-import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerInteractAtEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
@@ -26,7 +24,7 @@ public class PlayerInteractListener implements Listener {
         this.plugin = plugin;
     }
 
-    // ── Right-click on paper (voting only — doctor saves during round by right-clicking player) ──
+    // ── Right-click on paper (voting only) ───────────────────────────────────
     @EventHandler
     public void onInteract(PlayerInteractEvent event) {
         Player player = event.getPlayer();
@@ -37,7 +35,6 @@ public class PlayerInteractListener implements Listener {
 
         GameManager gm = plugin.getGameManager();
 
-        // Vote paper
         String target = ItemUtils.extractPaperTarget(item);
         if (target != null && item.getItemMeta().getDisplayName().startsWith("§c§lVOTE:")) {
             gm.handleVote(player, target);
@@ -45,14 +42,14 @@ public class PlayerInteractListener implements Listener {
             return;
         }
 
-        // Skip paper
         if (ItemUtils.isSkipPaper(item)) {
             gm.handleVote(player, "SKIP");
             event.setCancelled(true);
         }
     }
 
-    // ── Right-click ON a player (parasite infect or doctor save during round) ─
+    // ── Right-click ON a player ───────────────────────────────────────────────
+    // Handles: parasite infect, doctor save, identity scanner
     @EventHandler
     public void onInteractEntity(PlayerInteractAtEntityEvent event) {
         if (event.getHand() != EquipmentSlot.HAND) return;
@@ -65,15 +62,23 @@ public class PlayerInteractListener implements Listener {
 
         ItemStack held = player.getInventory().getItemInMainHand();
         boolean emptyHand = held == null || held.getType() == Material.AIR;
+        boolean holdingScanner = ItemUtils.isScannerItem(held);
 
-        // PARASITE: right-click empty hand = infect
+        // ── Identity Scanner — any alive player can use it ───────────────────
+        if (holdingScanner && gm.getState() == GameState.IN_ROUND) {
+            gm.handleScan(player, target);
+            event.setCancelled(true);
+            return;
+        }
+
+        // ── PARASITE: right-click empty hand = infect ────────────────────────
         if (gp.getRole() == Role.PARASITE && emptyHand && gm.getState() == GameState.IN_ROUND) {
             gm.handleInfect(player, target);
             event.setCancelled(true);
             return;
         }
 
-        // DOCTOR: right-click empty hand = save (round only, NOT voting)
+        // ── DOCTOR: right-click empty hand = save (round only, NOT voting) ───
         if (gp.getRole() == Role.DOCTOR && emptyHand && gm.getState() == GameState.IN_ROUND) {
             if (gp.isSavedThisRound()) {
                 player.sendMessage(GameManager.PREFIX + "§cYou've already used your save this round!");
@@ -88,21 +93,6 @@ public class PlayerInteractListener implements Listener {
             }
             event.setCancelled(true);
         }
-    }
-
-    // ── Crossbow bolt hits player (scanner — no damage, just reveals name) ────
-    @EventHandler
-    public void onProjectileHit(EntityDamageByEntityEvent event) {
-        if (!(event.getEntity() instanceof Player target)) return;
-        if (!(event.getDamager() instanceof Projectile proj)) return;
-        if (!(proj.getShooter() instanceof Player shooter)) return;
-
-        GameManager gm = plugin.getGameManager();
-        GamePlayer sgp = gm.getGamePlayer(shooter.getUniqueId());
-        if (sgp == null) return;
-
-        event.setCancelled(true);
-        gm.handleCrossbowHit(shooter, target);
     }
 
     // ── F key = parasite position swap ───────────────────────────────────────

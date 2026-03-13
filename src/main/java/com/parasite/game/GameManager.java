@@ -321,6 +321,7 @@ public class GameManager {
         }
 
         for (Player p : getAlivePlayers()) {
+            addBlindness(p, 3);
             giveVotingItems(p);
             p.sendTitle("§c§lVOTING", "§7Right-click a paper to vote!", 10, 40, 20);
             p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1f, 0.7f);
@@ -500,6 +501,28 @@ public class GameManager {
         parasite.playSound(parasite.getLocation(), Sound.ENTITY_SPIDER_AMBIENT, 1f, 0.5f);
     }
 
+    /** Any player right-clicks a player while holding the Identity Scanner */
+    public void handleScan(Player scanner, Player target) {
+        if (state != GameState.IN_ROUND) return;
+        GamePlayer sgp = gamePlayers.get(scanner.getUniqueId());
+        if (sgp == null || !sgp.isAlive()) return;
+        if (sgp.hasUsedCrossbow()) {
+            scanner.sendMessage(PREFIX + "§cYou've already used your scanner this round.");
+            return;
+        }
+        sgp.setUsedCrossbow(true);
+        scanner.sendMessage(PREFIX + "§eScanner: §f" + target.getName());
+        scanner.sendTitle("§e§lSCANNED", "§f" + target.getName(), 5, 40, 10);
+        scanner.playSound(scanner.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1.5f);
+        // Remove scanner from inventory (1 use)
+        for (int i = 0; i < scanner.getInventory().getSize(); i++) {
+            if (ItemUtils.isScannerItem(scanner.getInventory().getItem(i))) {
+                scanner.getInventory().setItem(i, null);
+                break;
+            }
+        }
+    }
+
     public void handleParasiteSwap(Player parasite) {
         if (state != GameState.IN_ROUND) return;
         GamePlayer pgp = gamePlayers.get(parasite.getUniqueId());
@@ -611,11 +634,14 @@ public class GameManager {
         p.getInventory().setItem(0, ItemUtils.signStack(16));
         p.getInventory().setItem(1, ItemUtils.signStack(16));
         p.getInventory().setItem(2, ItemUtils.crewAxe());
-        p.getInventory().setItem(3, ItemUtils.scanCrossbow());
+        p.getInventory().setItem(3, ItemUtils.scannerItem()); // right-click a player to scan identity
+        // Role card in slot 8
         if (role == Role.PARASITE) {
             p.getInventory().setItem(8, ItemUtils.parasiteIndicator());
         } else if (role == Role.DOCTOR) {
             p.getInventory().setItem(8, ItemUtils.doctorIndicator());
+        } else {
+            p.getInventory().setItem(8, ItemUtils.crewmateIndicator());
         }
     }
 

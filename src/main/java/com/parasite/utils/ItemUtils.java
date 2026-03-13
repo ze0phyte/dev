@@ -15,11 +15,7 @@ public class ItemUtils {
         ItemStack item = new ItemStack(Material.PAPER, 1);
         ItemMeta meta = item.getItemMeta();
         meta.setDisplayName("§c§lVOTE: §f" + playerName);
-        meta.setLore(Arrays.asList(
-                "§7Right-click to vote for",
-                "§e" + playerName
-        ));
-        // Store player name in lore line 1 so we can read it back
+        meta.setLore(Arrays.asList("§7Right-click to vote for", "§e" + playerName));
         item.setItemMeta(meta);
         return item;
     }
@@ -34,19 +30,6 @@ public class ItemUtils {
         return item;
     }
 
-    /** Doctor save paper - given to doctor during voting */
-    public static ItemStack savePaper(String playerName) {
-        ItemStack item = new ItemStack(Material.PAPER, 1);
-        ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName("§b§lSAVE: §f" + playerName);
-        meta.setLore(Arrays.asList(
-                "§7Right-click to protect",
-                "§b" + playerName + " §7from infection tonight"
-        ));
-        item.setItemMeta(meta);
-        return item;
-    }
-
     /** Iron axe for crewmates */
     public static ItemStack crewAxe() {
         ItemStack item = new ItemStack(Material.IRON_AXE, 1);
@@ -57,70 +40,86 @@ public class ItemUtils {
         return item;
     }
 
-    /** Crossbow - one use per round to reveal a name */
-    public static ItemStack scanCrossbow() {
-        ItemStack item = new ItemStack(Material.CROSSBOW, 1);
+    /**
+     * Identity Scanner — Nether Star, right-click ON a player to reveal their name.
+     * No arrow needed. Works via PlayerInteractAtEntityEvent.
+     */
+    public static ItemStack scannerItem() {
+        ItemStack item = new ItemStack(Material.NETHER_STAR, 1);
         ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName("§eIdentity Scanner");
+        meta.setDisplayName("§e§lIdentity Scanner");
         meta.setLore(Arrays.asList(
-                "§7Shoot a player to scan their identity.",
+                "§7Right-click directly on a player",
+                "§7to scan their identity.",
                 "§c1 use per round."
         ));
         item.setItemMeta(meta);
         return item;
     }
 
-    /** Signs for crewmates (2 stacks of 16) */
+    /** Signs for crewmates */
     public static ItemStack signStack(int amount) {
         ItemStack item = new ItemStack(Material.OAK_SIGN, amount);
         ItemMeta meta = item.getItemMeta();
         meta.setDisplayName("§fCommunications Board");
-        meta.setLore(Collections.singletonList("§7Place to communicate with the crew"));
+        meta.setLore(Collections.singletonList("§7Place anywhere to communicate"));
         item.setItemMeta(meta);
         return item;
     }
 
-    /** Parasite infection indicator item (slot 8, cosmetic) */
+    /** Parasite role card — Nether Star */
     public static ItemStack parasiteIndicator() {
-        ItemStack item = new ItemStack(Material.FERMENTED_SPIDER_EYE, 1);
+        ItemStack item = new ItemStack(Material.NETHER_STAR, 1);
         ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName("§4☣ Parasite Abilities");
+        meta.setDisplayName("§4§l☣ YOU ARE THE PARASITE");
         meta.setLore(Arrays.asList(
-                "§c• Right-click a player to INFECT them",
-                "§c• Press G to SWAP with a random crewmate",
-                "§8  (2 min cooldown)"
+                "§c• Right-click a player §4(empty hand)§c to INFECT",
+                "§c• Press §lF §r§cto SWAP positions with someone",
+                "§8  2 minute cooldown on swap",
+                "§7Infected players die before discussion",
+                "§7unless the Doctor saves them."
         ));
         item.setItemMeta(meta);
         return item;
     }
 
-    /** Doctor save indicator item (slot 8, cosmetic) */
+    /** Doctor role card — Nether Star */
     public static ItemStack doctorIndicator() {
-        ItemStack item = new ItemStack(Material.GOLDEN_APPLE, 1);
+        ItemStack item = new ItemStack(Material.NETHER_STAR, 1);
         ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName("§b✚ Doctor Abilities");
+        meta.setDisplayName("§b§l✚ YOU ARE THE DOCTOR");
         meta.setLore(Arrays.asList(
-                "§b• Right-click a player to SAVE them",
-                "§7  (one save per round)"
+                "§b• Right-click a player §3(empty hand)§b to SAVE",
+                "§7  One save per round only.",
+                "§7Save before the round ends to protect",
+                "§7someone from the parasite."
         ));
         item.setItemMeta(meta);
         return item;
     }
 
-    /**
-     * Extract target player name from a vote or save paper's display name.
-     * Returns null if not a vote/save paper.
-     */
+    /** Crewmate role card — Nether Star */
+    public static ItemStack crewmateIndicator() {
+        ItemStack item = new ItemStack(Material.NETHER_STAR, 1);
+        ItemMeta meta = item.getItemMeta();
+        meta.setDisplayName("§7§l⚙ YOU ARE A CREWMATE");
+        meta.setLore(Arrays.asList(
+                "§7• Place §fSigns§7 to communicate with others",
+                "§7• Use §eIdentity Scanner§7 — right-click a player",
+                "§7  to reveal their name (1 use per round)",
+                "§7• Vote out the parasite to win!"
+        ));
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    /** Extract target player name from a vote paper display name. */
     public static String extractPaperTarget(ItemStack item) {
         if (item == null || item.getType() != Material.PAPER) return null;
         if (!item.hasItemMeta() || !item.getItemMeta().hasDisplayName()) return null;
         String name = item.getItemMeta().getDisplayName();
-        // "§c§lVOTE: §fPlayerName"  or  "§b§lSAVE: §fPlayerName"
         if (name.contains("VOTE: ") && !name.contains("SKIP")) {
             return ChatColor.stripColor(name).replace("VOTE: ", "").trim();
-        }
-        if (name.contains("SAVE: ")) {
-            return ChatColor.stripColor(name).replace("SAVE: ", "").trim();
         }
         return null;
     }
@@ -129,5 +128,11 @@ public class ItemUtils {
         if (item == null || item.getType() != Material.PAPER) return false;
         if (!item.hasItemMeta() || !item.getItemMeta().hasDisplayName()) return false;
         return item.getItemMeta().getDisplayName().contains("SKIP VOTE");
+    }
+
+    public static boolean isScannerItem(ItemStack item) {
+        if (item == null || item.getType() != Material.NETHER_STAR) return false;
+        if (!item.hasItemMeta() || !item.getItemMeta().hasDisplayName()) return false;
+        return item.getItemMeta().getDisplayName().contains("Identity Scanner");
     }
 }

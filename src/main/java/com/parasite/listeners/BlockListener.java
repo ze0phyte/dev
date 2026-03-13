@@ -3,12 +3,13 @@ package com.parasite.listeners;
 import com.parasite.ParasitePlugin;
 import com.parasite.game.GameManager;
 import com.parasite.game.GameState;
+import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
-import org.bukkit.event.block.SignChangeEvent;
 
 public class BlockListener implements Listener {
 
@@ -28,10 +29,13 @@ public class BlockListener implements Listener {
     }
 
     /**
-     * Allow sign placement (players communicate with signs) but block other block placing.
-     * Signs are allowed in IN_ROUND and DISCUSSION.
+     * Sign placement fix:
+     * Adventure mode blocks block placement at the engine level even if you cancel the event
+     * and try to allow it. The only reliable workaround without NMS is to temporarily switch
+     * the player to SURVIVAL for the placement tick, then switch them back.
+     * We only do this for sign blocks during IN_ROUND and DISCUSSION phases.
      */
-    @EventHandler
+    @EventHandler(priority = EventPriority.LOW)
     public void onPlace(BlockPlaceEvent event) {
         Player player = event.getPlayer();
         GameManager gm = plugin.getGameManager();
@@ -41,9 +45,14 @@ public class BlockListener implements Listener {
         GameState state = gm.getState();
         boolean isSign = event.getBlockPlaced().getType().name().contains("SIGN");
 
-        // Allow signs only during round and discussion
         if (isSign && (state == GameState.IN_ROUND || state == GameState.DISCUSSION)) {
-            return; // Allow sign placement
+            // Temporarily switch to survival so the sign can be placed,
+            // then immediately switch back to adventure
+            player.setGameMode(GameMode.SURVIVAL);
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                player.setGameMode(GameMode.ADVENTURE);
+            }, 1L);
+            return; // allow the placement
         }
 
         // Block everything else

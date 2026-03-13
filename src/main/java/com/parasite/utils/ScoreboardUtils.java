@@ -3,7 +3,6 @@ package com.parasite.utils;
 import com.parasite.game.GameManager;
 import com.parasite.game.GamePlayer;
 import com.parasite.game.GameState;
-import com.parasite.game.Role;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.scoreboard.*;
@@ -31,6 +30,10 @@ public class ScoreboardUtils {
     public static void showInfo(Player player, GameManager gm) {
         ScoreboardManager sbm = Bukkit.getScoreboardManager();
         Scoreboard board = sbm.getNewScoreboard();
+
+        // CRITICAL: re-apply hidden team to this new scoreboard if names should be hidden
+        SkinUtils.applyHiddenIfNeeded(player);
+
         Objective obj = board.registerNewObjective("pinfo", Criteria.DUMMY, "§5§l☣ PARASITE ☣");
         obj.setDisplaySlot(DisplaySlot.SIDEBAR);
 
@@ -76,6 +79,9 @@ public class ScoreboardUtils {
         }
 
         player.setScoreboard(board);
+
+        // Re-apply name hiding to the new scoreboard
+        SkinUtils.applyHiddenIfNeeded(player);
     }
 
     public static void refreshAll(GameManager gm) {
@@ -86,12 +92,17 @@ public class ScoreboardUtils {
     }
 
     public static void clearSidebar(Player player) {
-        player.setScoreboard(Bukkit.getScoreboardManager().getNewScoreboard());
+        Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
+        player.setScoreboard(board);
+        // Re-apply name hiding to fresh scoreboard
+        SkinUtils.applyHiddenIfNeeded(player);
     }
 
     public static void clearAll() {
         infoEnabled.clear();
-        for (Player p : Bukkit.getOnlinePlayers()) clearSidebar(p);
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            p.setScoreboard(Bukkit.getScoreboardManager().getNewScoreboard());
+        }
     }
 
     public static void updateTabList(GameManager gm) {
