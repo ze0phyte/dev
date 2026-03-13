@@ -8,8 +8,10 @@ import com.parasite.game.Role;
 import com.parasite.utils.ItemUtils;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerInteractAtEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
@@ -48,8 +50,24 @@ public class PlayerInteractListener implements Listener {
         }
     }
 
-    // ── Right-click ON a player ───────────────────────────────────────────────
-    // Handles: parasite infect, doctor save, identity scanner
+    // ── Crossbow bolt hits player = identity scan ─────────────────────────────
+    // Crossbow is pre-loaded so player just right-clicks to fire, no arrow needed in inv
+    @EventHandler
+    public void onProjectileHit(EntityDamageByEntityEvent event) {
+        if (!(event.getEntity() instanceof Player target)) return;
+        if (!(event.getDamager() instanceof Projectile proj)) return;
+        if (!(proj.getShooter() instanceof Player shooter)) return;
+
+        GameManager gm = plugin.getGameManager();
+        GamePlayer sgp = gm.getGamePlayer(shooter.getUniqueId());
+        if (sgp == null) return;
+
+        // Cancel damage — scanner doesn't hurt
+        event.setCancelled(true);
+        gm.handleCrossbowHit(shooter, target);
+    }
+
+    // ── Right-click ON a player (parasite infect or doctor save) ─────────────
     @EventHandler
     public void onInteractEntity(PlayerInteractAtEntityEvent event) {
         if (event.getHand() != EquipmentSlot.HAND) return;
@@ -62,23 +80,15 @@ public class PlayerInteractListener implements Listener {
 
         ItemStack held = player.getInventory().getItemInMainHand();
         boolean emptyHand = held == null || held.getType() == Material.AIR;
-        boolean holdingScanner = ItemUtils.isScannerItem(held);
 
-        // ── Identity Scanner — any alive player can use it ───────────────────
-        if (holdingScanner && gm.getState() == GameState.IN_ROUND) {
-            gm.handleScan(player, target);
-            event.setCancelled(true);
-            return;
-        }
-
-        // ── PARASITE: right-click empty hand = infect ────────────────────────
+        // PARASITE: right-click empty hand = infect
         if (gp.getRole() == Role.PARASITE && emptyHand && gm.getState() == GameState.IN_ROUND) {
             gm.handleInfect(player, target);
             event.setCancelled(true);
             return;
         }
 
-        // ── DOCTOR: right-click empty hand = save (round only, NOT voting) ───
+        // DOCTOR: right-click empty hand = save (round only)
         if (gp.getRole() == Role.DOCTOR && emptyHand && gm.getState() == GameState.IN_ROUND) {
             if (gp.isSavedThisRound()) {
                 player.sendMessage(GameManager.PREFIX + "§cYou've already used your save this round!");

@@ -5,79 +5,76 @@ import org.bukkit.entity.Player;
 import org.bukkit.scoreboard.*;
 
 /**
- * Name tag hiding works by putting every player into a team with NAME_TAG_VISIBILITY=NEVER.
- * CRITICAL: We must apply this team to EVERY player's individual scoreboard, not just the
- * main scoreboard. ScoreboardUtils gives each player their own scoreboard for the info
- * display, which means the main scoreboard team is invisible to them.
- * Solution: we track hidden state ourselves and apply it on every scoreboard set.
+ * Name hiding strategy:
+ * The problem is ScoreboardUtils gives each player their own Scoreboard object.
+ * Teams on the MAIN scoreboard don't apply to players using a custom scoreboard.
+ * Fix: we apply the hidden team to EVERY player's individual scoreboard whenever
+ * names need to be hidden, and re-apply it every time a scoreboard is swapped.
  */
 public class SkinUtils {
 
     private static final String HIDDEN_TEAM = "parasite_hidden";
-    private static boolean namesHidden = false;
+    private static boolean namesCurrentlyHidden = false;
 
-    public static boolean areNamesHidden() { return namesHidden; }
+    public static boolean areNamesHidden() {
+        return namesCurrentlyHidden;
+    }
 
-    /**
-     * Hide all name tags. Applies the hidden team to EVERY player's current scoreboard
-     * so it works regardless of whether they have a custom scoreboard or the main one.
-     */
+    /** Hide all name tags. Must be called after players have their scoreboards set. */
     public static void hideAllNames() {
-        namesHidden = true;
+        namesCurrentlyHidden = true;
+        // Apply to main scoreboard
+        applyToBoard(Bukkit.getScoreboardManager().getMainScoreboard(), true);
+        // Apply to every player's individual scoreboard
         for (Player p : Bukkit.getOnlinePlayers()) {
-            applyHiddenTeam(p.getScoreboard(), p);
+            applyToBoard(p.getScoreboard(), true);
         }
     }
 
     /**
-     * Call this whenever a player's scoreboard is changed (e.g. when /parasite info is toggled).
-     * Ensures the hidden team carries over to the new scoreboard.
+     * Call this whenever a player's scoreboard changes so name hiding carries over.
+     * Called by ScoreboardUtils every time it sets a new scoreboard.
      */
     public static void applyHiddenIfNeeded(Player player) {
-        if (namesHidden) {
-            applyHiddenTeam(player.getScoreboard(), player);
+        if (namesCurrentlyHidden) {
+            applyToBoard(player.getScoreboard(), true);
         }
     }
 
-    private static void applyHiddenTeam(Scoreboard board, Player player) {
-        Team team = board.getTeam(HIDDEN_TEAM);
-        if (team == null) {
-            team = board.registerNewTeam(HIDDEN_TEAM);
-        }
-        team.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.NEVER);
-        team.setCanSeeFriendlyInvisibles(false);
-        // Add ALL online players to this team on this board so everyone is hidden
-        for (Player p : Bukkit.getOnlinePlayers()) {
-            if (!team.hasEntry(p.getName())) team.addEntry(p.getName());
-        }
-    }
-
-    /** Show name tags again (discussion / voting / game end). */
+    /** Show name tags again. */
     public static void showAllNames() {
-        namesHidden = false;
-        // Apply to main scoreboard
-        Scoreboard main = Bukkit.getScoreboardManager().getMainScoreboard();
-        Team mainTeam = main.getTeam(HIDDEN_TEAM);
-        if (mainTeam != null) {
-            mainTeam.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.ALWAYS);
-            for (Player p : Bukkit.getOnlinePlayers()) mainTeam.removeEntry(p.getName());
-        }
-        // Apply to each player's individual scoreboard
+        namesCurrentlyHidden = false;
+        applyToBoard(Bukkit.getScoreboardManager().getMainScoreboard(), false);
         for (Player p : Bukkit.getOnlinePlayers()) {
-            Scoreboard board = p.getScoreboard();
-            Team team = board.getTeam(HIDDEN_TEAM);
+            applyToBoard(p.getScoreboard(), false);
+        }
+    }
+
+    private static void applyToBoard(Scoreboard board, boolean hide) {
+        Team team = board.getTeam(HIDDEN_TEAM);
+        if (hide) {
+            if (team == null) team = board.registerNewTeam(HIDDEN_TEAM);
+            team.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.NEVER);
+            team.setCanSeeFriendlyInvisibles(false);
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                if (!team.hasEntry(p.getName())) team.addEntry(p.getName());
+            }
+        } else {
             if (team != null) {
                 team.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.ALWAYS);
-                for (Player other : Bukkit.getOnlinePlayers()) team.removeEntry(other.getName());
+                for (Player p : Bukkit.getOnlinePlayers()) team.removeEntry(p.getName());
             }
         }
     }
 
-    /** Set Steve skin via SkinsRestorer. Correct command is "sr setskin". */
+    /**
+     * Set Steve skin via SkinsRestorer.
+     * Correct command is "sr setskin <player> <skin>"
+     */
     public static void setCrewSkin(Player player) {
         if (Bukkit.getPluginManager().isPluginEnabled("SkinsRestorer")) {
             Bukkit.dispatchCommand(Bukkit.getConsoleSender(),
-                    "sr setskin " + player.getName() + " MHF_Steve");
+                    "skin set " + player.getName() + " MHF_Steve");
         }
     }
 
@@ -85,17 +82,17 @@ public class SkinUtils {
     public static void restoreOriginalSkin(Player player) {
         if (Bukkit.getPluginManager().isPluginEnabled("SkinsRestorer")) {
             Bukkit.dispatchCommand(Bukkit.getConsoleSender(),
-                    "sr applyskin " + player.getName());
+                    "skin clear " + player.getName());
         }
     }
 
-    /** Cleanup teams on game reset. */
+    /** Cleanup on game reset. */
     public static void cleanup() {
-        namesHidden = false;
-        Scoreboard main = Bukkit.getScoreboardManager().getMainScoreboard();
-        Team t = main.getTeam(HIDDEN_TEAM);
+        namesCurrentlyHidden = false;
+        // Clean main scoreboard
+        Team t = Bukkit.getScoreboardManager().getMainScoreboard().getTeam(HIDDEN_TEAM);
         if (t != null) t.unregister();
-        // Also clean from each player's individual scoreboard
+        // Clean each player's scoreboard
         for (Player p : Bukkit.getOnlinePlayers()) {
             Team pt = p.getScoreboard().getTeam(HIDDEN_TEAM);
             if (pt != null) pt.unregister();
