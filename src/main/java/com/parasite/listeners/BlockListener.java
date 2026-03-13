@@ -3,6 +3,7 @@ package com.parasite.listeners;
 import com.parasite.ParasitePlugin;
 import com.parasite.game.GameManager;
 import com.parasite.game.GameState;
+import org.bukkit.GameMode;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -20,11 +21,7 @@ public class BlockListener implements Listener {
         this.plugin = plugin;
     }
 
-    /**
-     * Block breaking:
-     * - Iron axe can break oak signs during IN_ROUND and DISCUSSION
-     * - Everything else blocked
-     */
+    /** Iron axe can break oak signs during round/discussion. Everything else blocked. */
     @EventHandler(priority = EventPriority.LOW)
     public void onBreak(BlockBreakEvent event) {
         Player player = event.getPlayer();
@@ -40,16 +37,14 @@ public class BlockListener implements Listener {
         boolean hasAxe = held != null && held.getType() == Material.IRON_AXE;
         boolean breakPhase = state == GameState.IN_ROUND || state == GameState.DISCUSSION;
 
-        if (isSign && hasAxe && breakPhase) return; // allow
+        if (isSign && hasAxe && breakPhase) return;
 
         event.setCancelled(true);
     }
 
     /**
-     * Block placement:
-     * - Signs are allowed during IN_ROUND and DISCUSSION — Adventure mode
-     *   allows this natively because signs have CanPlaceOn NBT data set.
-     * - Everything else blocked.
+     * Sign placement: switch to SURVIVAL for 1 tick so Adventure mode allows the place,
+     * then switch back. Signs only, round and discussion only.
      */
     @EventHandler(priority = EventPriority.LOW)
     public void onPlace(BlockPlaceEvent event) {
@@ -61,7 +56,15 @@ public class BlockListener implements Listener {
         GameState state = gm.getState();
         boolean isSign = event.getBlockPlaced().getType().name().contains("SIGN");
 
-        if (isSign && (state == GameState.IN_ROUND || state == GameState.DISCUSSION)) return; // allow
+        if (isSign && (state == GameState.IN_ROUND || state == GameState.DISCUSSION)) {
+            player.setGameMode(GameMode.SURVIVAL);
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                if (gm.getGamePlayer(player.getUniqueId()) != null) {
+                    player.setGameMode(GameMode.ADVENTURE);
+                }
+            }, 1L);
+            return;
+        }
 
         event.setCancelled(true);
     }
