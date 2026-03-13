@@ -64,13 +64,17 @@ public class SkinUtils {
      * Set Steve skin. Modern SkinsRestorer command: /skin set <player> <skin>
      * Called from console so it has full admin permissions.
      */
+    /**
+     * Sets player skin to Steve.
+     * REQUIRES: Run once in console to pre-create the skin:
+     *   sr createcustom steve_disguise https://textures.minecraft.net/texture/1a4af718455d4aab528e7a61f86fa25e6a369d1768dcb13f7df319a713eb810b
+     */
     public static void setCrewSkin(Player player, ParasitePlugin plugin) {
         if (Bukkit.getPluginManager().isPluginEnabled("SkinsRestorer")) {
             String name = player.getName();
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "skin set " + name + " MHF_Steve");
-            // Force client refresh — must be delayed 1 tick so the set completes first
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "skin set " + name + " steve_disguise");
             plugin.getServer().getScheduler().runTaskLater(plugin, () ->
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "skin update " + name), 2L);
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "skin update " + name), 10L);
         }
     }
 
