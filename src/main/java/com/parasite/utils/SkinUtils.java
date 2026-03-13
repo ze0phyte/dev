@@ -1,47 +1,40 @@
 package com.parasite.utils;
 
+import com.parasite.ParasitePlugin;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.scoreboard.*;
 
 /**
- * Name hiding strategy:
- * The problem is ScoreboardUtils gives each player their own Scoreboard object.
- * Teams on the MAIN scoreboard don't apply to players using a custom scoreboard.
- * Fix: we apply the hidden team to EVERY player's individual scoreboard whenever
- * names need to be hidden, and re-apply it every time a scoreboard is swapped.
+ * Skin changes: SkinsRestorer console command is "/skin set <player> <skin>"
+ * The dispatchCommand runs it as console which has full permissions.
+ *
+ * Name hiding: We apply the hidden team to EVERY player's scoreboard individually
+ * because ScoreboardUtils gives each player their own scoreboard object.
+ * Teams on the main scoreboard don't carry over to custom scoreboards.
  */
 public class SkinUtils {
 
     private static final String HIDDEN_TEAM = "parasite_hidden";
     private static boolean namesCurrentlyHidden = false;
 
-    public static boolean areNamesHidden() {
-        return namesCurrentlyHidden;
-    }
+    public static boolean areNamesHidden() { return namesCurrentlyHidden; }
 
-    /** Hide all name tags. Must be called after players have their scoreboards set. */
     public static void hideAllNames() {
         namesCurrentlyHidden = true;
-        // Apply to main scoreboard
         applyToBoard(Bukkit.getScoreboardManager().getMainScoreboard(), true);
-        // Apply to every player's individual scoreboard
         for (Player p : Bukkit.getOnlinePlayers()) {
             applyToBoard(p.getScoreboard(), true);
         }
     }
 
-    /**
-     * Call this whenever a player's scoreboard changes so name hiding carries over.
-     * Called by ScoreboardUtils every time it sets a new scoreboard.
-     */
+    /** Called by ScoreboardUtils every time it assigns a new scoreboard to a player. */
     public static void applyHiddenIfNeeded(Player player) {
         if (namesCurrentlyHidden) {
             applyToBoard(player.getScoreboard(), true);
         }
     }
 
-    /** Show name tags again. */
     public static void showAllNames() {
         namesCurrentlyHidden = false;
         applyToBoard(Bukkit.getScoreboardManager().getMainScoreboard(), false);
@@ -68,31 +61,35 @@ public class SkinUtils {
     }
 
     /**
-     * Set Steve skin via SkinsRestorer.
-     * Correct command is "sr setskin <player> <skin>"
+     * Set Steve skin. Modern SkinsRestorer command: /skin set <player> <skin>
+     * Called from console so it has full admin permissions.
      */
-    public static void setCrewSkin(Player player) {
+    public static void setCrewSkin(Player player, ParasitePlugin plugin) {
         if (Bukkit.getPluginManager().isPluginEnabled("SkinsRestorer")) {
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(),
-                    "skin set " + player.getName() + " MHF_Steve");
+            String name = player.getName();
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "skin set " + name + " MHF_Steve");
+            // Force client refresh — must be delayed 1 tick so the set completes first
+            plugin.getServer().getScheduler().runTaskLater(plugin, () ->
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "skin update " + name), 2L);
         }
     }
 
-    /** Restore original skin via SkinsRestorer. */
-    public static void restoreOriginalSkin(Player player) {
+    /**
+     * Restore original skin. /skin clear <player> resets to their Mojang account skin.
+     */
+    public static void restoreOriginalSkin(Player player, ParasitePlugin plugin) {
         if (Bukkit.getPluginManager().isPluginEnabled("SkinsRestorer")) {
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(),
-                    "skin clear " + player.getName());
+            String name = player.getName();
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "skin clear " + name);
+            plugin.getServer().getScheduler().runTaskLater(plugin, () ->
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "skin update " + name), 2L);
         }
     }
 
-    /** Cleanup on game reset. */
     public static void cleanup() {
         namesCurrentlyHidden = false;
-        // Clean main scoreboard
         Team t = Bukkit.getScoreboardManager().getMainScoreboard().getTeam(HIDDEN_TEAM);
         if (t != null) t.unregister();
-        // Clean each player's scoreboard
         for (Player p : Bukkit.getOnlinePlayers()) {
             Team pt = p.getScoreboard().getTeam(HIDDEN_TEAM);
             if (pt != null) pt.unregister();

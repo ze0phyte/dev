@@ -1,7 +1,5 @@
 package com.parasite.game;
 
-import org.bukkit.inventory.ItemStack;
-
 import java.util.UUID;
 
 public class GamePlayer {
@@ -12,10 +10,15 @@ public class GamePlayer {
     private boolean alive = true;
 
     // Per-round state
-    private boolean infected = false;       // Parasite infected this player
-    private boolean savedThisRound = false; // Doctor saved this player
-    private boolean usedCrossbow = false;   // Fired crossbow this round
-    private boolean hasVoted = false;       // Cast a vote this voting phase
+    private boolean infected = false;
+    private boolean savedThisRound = false;
+    private boolean usedCrossbow = false;
+    private boolean hasVoted = false;
+    private boolean infectedThisRound = false; // Parasite can only infect ONE person per round
+
+    // Stamina
+    private int stamina = 20;           // 0-20, mirrors food bar
+    private long lastStaminaUse = 0;
 
     // Parasite swap cooldown
     private long lastSwapMillis = 0;
@@ -25,10 +28,6 @@ public class GamePlayer {
 
     // Force-assigned role by admin before game
     private Role forcedRole = null;
-
-    // Stored skin data for restoration
-    private String originalSkinTexture = null;
-    private String originalSkinSignature = null;
 
     public GamePlayer(UUID uuid, String name) {
         this.uuid = uuid;
@@ -42,6 +41,9 @@ public class GamePlayer {
         usedCrossbow = false;
         hasVoted = false;
         votedFor = null;
+        infectedThisRound = false;
+        stamina = 20;
+        lastStaminaUse = 0;
     }
 
     // Full reset for new game
@@ -85,8 +87,12 @@ public class GamePlayer {
     public Role getForcedRole() { return forcedRole; }
     public void setForcedRole(Role r) { this.forcedRole = r; }
 
-    public String getOriginalSkinTexture() { return originalSkinTexture; }
-    public void setOriginalSkinTexture(String t) { this.originalSkinTexture = t; }
-    public String getOriginalSkinSignature() { return originalSkinSignature; }
-    public void setOriginalSkinSignature(String s) { this.originalSkinSignature = s; }
+    public boolean hasInfectedThisRound() { return infectedThisRound; }
+    public void setInfectedThisRound(boolean b) { this.infectedThisRound = b; }
+
+    public int getStamina() { return stamina; }
+    public void setStamina(int s) { this.stamina = Math.max(0, Math.min(20, s)); }
+
+    public long getLastStaminaUse() { return lastStaminaUse; }
+    public void setLastStaminaUse(long t) { this.lastStaminaUse = t; }
 }

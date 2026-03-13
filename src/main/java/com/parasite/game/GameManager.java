@@ -27,6 +27,7 @@ public class GameManager {
     private int timer = 0;
     private BukkitTask phaseTask;
     private BukkitTask scoreboardTask;
+    private BukkitTask staminaTask;
 
     private final Map<UUID, GamePlayer> gamePlayers = new LinkedHashMap<>();
     private final Map<UUID, Role> forcedRoles = new HashMap<>();
@@ -158,7 +159,7 @@ public class GameManager {
             p.setHealth(p.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue());
             p.setFoodLevel(20);
             for (PotionEffect e : p.getActivePotionEffects()) p.removePotionEffect(e.getType());
-            SkinUtils.setCrewSkin(p);
+            SkinUtils.setCrewSkin(p, plugin);
         }
 
         List<Location> spawnPoints = generateSpawnRing(arenaLocation, active.size(), 8.0);
@@ -242,6 +243,8 @@ public class GameManager {
                 timer = t--;
             }
         }.runTaskTimer(plugin, 20L, 20L);
+
+        startStaminaTask();
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -494,9 +497,15 @@ public class GameManager {
         if (pgp == null || tgp == null) return;
         if (!pgp.isAlive() || !tgp.isAlive()) return;
         if (tgp.getRole() == Role.PARASITE) return;
+        // Parasite can only infect ONE person per round
+        if (pgp.hasInfectedThisRound()) {
+            parasite.sendMessage(PREFIX + "§cYou already infected someone this round!");
+            return;
+        }
         if (tgp.isInfected()) { parasite.sendMessage(PREFIX + "§cThat crewmate is already infected."); return; }
 
         tgp.setInfected(true);
+        pgp.setInfectedThisRound(true);
         parasite.sendMessage(PREFIX + "§4☣ §7You infected §f" + target.getName() + "§7! They will die before discussion unless the Doctor saves them.");
         parasite.playSound(parasite.getLocation(), Sound.ENTITY_SPIDER_AMBIENT, 1f, 0.5f);
     }
@@ -594,7 +603,7 @@ public class GameManager {
             addBlindness(p, 5);
             if (parasiteWon) p.playSound(p.getLocation(), Sound.ENTITY_WITHER_DEATH, 0.5f, 0.5f);
             else p.playSound(p.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1f);
-            SkinUtils.restoreOriginalSkin(p);
+            SkinUtils.restoreOriginalSkin(p, plugin);
         }
 
         new BukkitRunnable() {
@@ -709,6 +718,44 @@ public class GameManager {
         Bukkit.getConsoleSender().sendMessage(message);
     }
 
+    // ══════════════════════════════════════════════════════════════════════════
+    //  STAMINA SYSTEM — food bar = stamina bar
+    //  Sprinting drains stamina. When empty, player is forced to walk.
+    //  Stamina regens when not sprinting. Runs every 2 ticks.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    private void startStaminaTask() {
+        if (staminaTask != null) { staminaTask.cancel(); staminaTask = null; }
+        staminaTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (state != GameState.IN_ROUND) { cancel(); staminaTask = null; return; }
+                for (Player p : getAlivePlayers()) {
+                    GamePlayer gp = gamePlayers.get(p.getUniqueId());
+                    if (gp == null) continue;
+
+                    int stamina = gp.getStamina();
+                    if (p.isSprinting()) {
+                        // Drain: -1 every 2 ticks = empty in ~2 seconds (20 units over 40 ticks)
+                        stamina = Math.max(0, stamina - 1);
+                        if (stamina == 0) {
+                            // Force stop sprinting
+                            p.setSprinting(false);
+                            p.setFoodLevel(0);
+                        } else {
+                            p.setFoodLevel(stamina);
+                        }
+                    } else {
+                        // Regen: +1 every 2 ticks when not sprinting
+                        stamina = Math.min(20, stamina + 1);
+                        p.setFoodLevel(stamina);
+                    }
+                    gp.setStamina(stamina);
+                }
+            }
+        }.runTaskTimer(plugin, 0L, 2L);
+    }
+
     private void startScoreboardUpdater() {
         scoreboardTask = new BukkitRunnable() {
             @Override
@@ -764,8 +811,9 @@ public class GameManager {
     public void forceStop() {
         if (phaseTask != null) { phaseTask.cancel(); phaseTask = null; }
         if (scoreboardTask != null) { scoreboardTask.cancel(); scoreboardTask = null; }
+        if (staminaTask != null) { staminaTask.cancel(); staminaTask = null; }
         SkinUtils.showAllNames();
-        for (Player p : Bukkit.getOnlinePlayers()) SkinUtils.restoreOriginalSkin(p);
+        for (Player p : Bukkit.getOnlinePlayers()) SkinUtils.restoreOriginalSkin(p, plugin);
         SkinUtils.cleanup();
         state = GameState.ENDED;
         broadcastAll(PREFIX + "§cGame forcefully stopped.");
@@ -782,7 +830,7 @@ public class GameManager {
         SkinUtils.cleanup();
         ScoreboardUtils.clearAll();
         for (Player p : Bukkit.getOnlinePlayers()) {
-            SkinUtils.restoreOriginalSkin(p);
+            SkinUtils.restoreOriginalSkin(p, plugin);
             p.setGameMode(GameMode.SURVIVAL);
             for (PotionEffect e : p.getActivePotionEffects()) p.removePotionEffect(e.getType());
             if (lobbyLocation != null) p.teleport(lobbyLocation);
