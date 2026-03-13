@@ -82,13 +82,14 @@ public class ItemUtils {
         return item;
     }
 
-    /** Signs for crewmates */
+    /** Signs with CanPlaceOn NBT — placeable on smooth_stone and gray_concrete in Adventure mode */
+    @SuppressWarnings("deprecation")
     public static ItemStack signStack(int amount) {
+        String nbt = "{CanPlaceOn:[\"minecraft:smooth_stone\",\"minecraft:gray_concrete\"],"
+                + "display:{Name:\"\\\"§fCommunications Board\\\"\","
+                + "Lore:[\"\\\"§7Place on smooth stone or gray concrete\\\"\"]}}";
         ItemStack item = new ItemStack(Material.OAK_SIGN, amount);
-        ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName("§fCommunications Board");
-        meta.setLore(Collections.singletonList("§7Place to communicate with the crew"));
-        item.setItemMeta(meta);
+        Bukkit.getUnsafe().modifyItemStack(item, nbt);
         return item;
     }
 

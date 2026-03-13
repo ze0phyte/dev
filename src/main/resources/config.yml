@@ -1,5 +1,5 @@
 game:
-  min-players: 1
+  min-players: 0
   max-players: 16
   day-duration: 300          # 5 min in seconds
   discussion-duration: 120   # 2 min

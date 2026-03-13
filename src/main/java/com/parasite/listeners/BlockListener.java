@@ -3,7 +3,6 @@ package com.parasite.listeners;
 import com.parasite.ParasitePlugin;
 import com.parasite.game.GameManager;
 import com.parasite.game.GameState;
-import org.bukkit.GameMode;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -42,10 +41,7 @@ public class BlockListener implements Listener {
         event.setCancelled(true);
     }
 
-    /**
-     * Sign placement: switch to SURVIVAL for 1 tick so Adventure mode allows the place,
-     * then switch back. Signs only, round and discussion only.
-     */
+    /** Signs have CanPlaceOn NBT set — Adventure mode handles placement natively. Block everything else. */
     @EventHandler(priority = EventPriority.LOW)
     public void onPlace(BlockPlaceEvent event) {
         Player player = event.getPlayer();
@@ -55,16 +51,9 @@ public class BlockListener implements Listener {
 
         GameState state = gm.getState();
         boolean isSign = event.getBlockPlaced().getType().name().contains("SIGN");
+        boolean placePhase = state == GameState.IN_ROUND || state == GameState.DISCUSSION;
 
-        if (isSign && (state == GameState.IN_ROUND || state == GameState.DISCUSSION)) {
-            player.setGameMode(GameMode.SURVIVAL);
-            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-                if (gm.getGamePlayer(player.getUniqueId()) != null) {
-                    player.setGameMode(GameMode.ADVENTURE);
-                }
-            }, 1L);
-            return;
-        }
+        if (isSign && placePhase) return;
 
         event.setCancelled(true);
     }
