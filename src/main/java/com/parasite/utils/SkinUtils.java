@@ -65,16 +65,13 @@ public class SkinUtils {
      * Called from console so it has full admin permissions.
      */
     /**
-     * Sets player skin to Steve.
-     * REQUIRES: Run once in console to pre-create the skin:
-     *   sr createcustom steve_disguise https://textures.minecraft.net/texture/1a4af718455d4aab528e7a61f86fa25e6a369d1768dcb13f7df319a713eb810b
+     * Sets player skin to Steve by running the command AS the player.
+     * "skin set steve_disguise" works as a player command; the admin
+     * variant with a target name does not work on this SR version.
      */
     public static void setCrewSkin(Player player, ParasitePlugin plugin) {
         if (Bukkit.getPluginManager().isPluginEnabled("SkinsRestorer")) {
-            String name = player.getName();
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "skin set " + name + " steve_disguise");
-            plugin.getServer().getScheduler().runTaskLater(plugin, () ->
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "skin update " + name), 10L);
+            player.performCommand("skin set steve_disguise");
         }
     }
 
@@ -83,10 +80,7 @@ public class SkinUtils {
      */
     public static void restoreOriginalSkin(Player player, ParasitePlugin plugin) {
         if (Bukkit.getPluginManager().isPluginEnabled("SkinsRestorer")) {
-            String name = player.getName();
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "skin clear " + name);
-            plugin.getServer().getScheduler().runTaskLater(plugin, () ->
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "skin update " + name), 2L);
+            player.performCommand("skin clear");
         }
     }
 

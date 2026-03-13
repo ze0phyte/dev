@@ -48,9 +48,10 @@ public class ItemUtils {
                 "§8Standard crew equipment",
                 "§7Can break §foak signs"
         ));
-        // Add CanDestroy for oak signs via Adventure mode NBT
-        meta.addItemFlags(ItemFlag.HIDE_DESTROYS);
         item.setItemMeta(meta);
+        // CanDestroy NBT — required for Adventure mode to allow breaking signs
+        Bukkit.getUnsafe().modifyItemStack(item,
+            "{CanDestroy:[\"minecraft:oak_sign\",\"minecraft:oak_wall_sign\"]}");
 
         // Apply CanDestroy NBT via Bukkit API — works in 1.20.1+
         // We do this by using the PersistentDataContainer approach
@@ -85,11 +86,14 @@ public class ItemUtils {
     /** Signs with CanPlaceOn NBT — placeable on smooth_stone and gray_concrete in Adventure mode */
     @SuppressWarnings("deprecation")
     public static ItemStack signStack(int amount) {
-        String nbt = "{CanPlaceOn:[\"minecraft:smooth_stone\",\"minecraft:gray_concrete\"],"
-                + "display:{Name:\"\\\"§fCommunications Board\\\"\","
-                + "Lore:[\"\\\"§7Place on smooth stone or gray concrete\\\"\"]}}";
         ItemStack item = new ItemStack(Material.OAK_SIGN, amount);
-        Bukkit.getUnsafe().modifyItemStack(item, nbt);
+        ItemMeta meta = item.getItemMeta();
+        meta.setDisplayName("§fCommunications Board");
+        meta.setLore(Collections.singletonList("§7Place on smooth stone or gray concrete"));
+        item.setItemMeta(meta);
+        // CanPlaceOn NBT — required for Adventure mode to allow placing on these blocks
+        Bukkit.getUnsafe().modifyItemStack(item,
+            "{CanPlaceOn:[\"minecraft:smooth_stone\",\"minecraft:gray_concrete\"]}");
         return item;
     }
 
