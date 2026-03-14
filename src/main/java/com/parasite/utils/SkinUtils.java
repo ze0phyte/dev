@@ -5,92 +5,112 @@ import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.scoreboard.*;
 
-/**
- * Skin changes: SkinsRestorer console command is "/skin set <player> <skin>"
- * The dispatchCommand runs it as console which has full permissions.
- *
- * Name hiding: We apply the hidden team to EVERY player's scoreboard individually
- * because ScoreboardUtils gives each player their own scoreboard object.
- * Teams on the main scoreboard don't carry over to custom scoreboards.
- */
+import java.util.Collection;
+import java.util.Collections;
+
 public class SkinUtils {
 
-    private static final String HIDDEN_TEAM = "parasite_hidden";
+    private static final String HIDDEN_TEAM   = "parasite_hidden";
+    private static final String PARASITE_TEAM = "parasite_peer";
     private static boolean namesCurrentlyHidden = false;
 
     public static boolean areNamesHidden() { return namesCurrentlyHidden; }
 
-    public static void hideAllNames() {
+    /** Hide all nametags. Pass alive parasites so they can see each other. */
+    public static void hideAllNames(Collection<Player> parasites) {
         namesCurrentlyHidden = true;
-        applyToBoard(Bukkit.getScoreboardManager().getMainScoreboard(), true);
+        applyHideToBoard(Bukkit.getScoreboardManager().getMainScoreboard(), parasites, false);
         for (Player p : Bukkit.getOnlinePlayers()) {
-            applyToBoard(p.getScoreboard(), true);
+            boolean isParasite = parasites.contains(p);
+            applyHideToBoard(p.getScoreboard(), parasites, isParasite);
         }
+    }
+
+    /** No-parasite overload for non-round phases. */
+    public static void hideAllNames() {
+        hideAllNames(Collections.emptyList());
     }
 
     /** Called by ScoreboardUtils every time it assigns a new scoreboard to a player. */
     public static void applyHiddenIfNeeded(Player player) {
         if (namesCurrentlyHidden) {
-            applyToBoard(player.getScoreboard(), true);
+            applyHideToBoard(player.getScoreboard(), Collections.emptyList(), false);
         }
     }
 
     public static void showAllNames() {
         namesCurrentlyHidden = false;
-        applyToBoard(Bukkit.getScoreboardManager().getMainScoreboard(), false);
+        cleanBoard(Bukkit.getScoreboardManager().getMainScoreboard());
         for (Player p : Bukkit.getOnlinePlayers()) {
-            applyToBoard(p.getScoreboard(), false);
+            cleanBoard(p.getScoreboard());
         }
     }
 
-    private static void applyToBoard(Scoreboard board, boolean hide) {
-        Team team = board.getTeam(HIDDEN_TEAM);
-        if (hide) {
-            if (team == null) team = board.registerNewTeam(HIDDEN_TEAM);
-            team.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.NEVER);
-            team.setCanSeeFriendlyInvisibles(false);
-            for (Player p : Bukkit.getOnlinePlayers()) {
-                if (!team.hasEntry(p.getName())) team.addEntry(p.getName());
-            }
-        } else {
-            if (team != null) {
-                team.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.ALWAYS);
-                for (Player p : Bukkit.getOnlinePlayers()) team.removeEntry(p.getName());
+    // ── Private helpers ────────────────────────────────────────────────────
+
+    private static void applyHideToBoard(Scoreboard board, Collection<Player> parasites, boolean isParasite) {
+        // 1. Hidden team — nobody sees nametags
+        Team hidden = board.getTeam(HIDDEN_TEAM);
+        if (hidden == null) hidden = board.registerNewTeam(HIDDEN_TEAM);
+        hidden.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.NEVER);
+        hidden.setCanSeeFriendlyInvisibles(false);
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (!hidden.hasEntry(p.getName())) hidden.addEntry(p.getName());
+        }
+
+        // 2. Parasite peer team — only on parasites' scoreboards
+        Team old = board.getTeam(PARASITE_TEAM);
+        if (old != null) old.unregister();
+
+        if (isParasite && !parasites.isEmpty()) {
+            Team peerTeam = board.registerNewTeam(PARASITE_TEAM);
+            peerTeam.setPrefix("§4☣ §r");
+            peerTeam.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.FOR_OWN_TEAM);
+            peerTeam.setCanSeeFriendlyInvisibles(true);
+            for (Player p : parasites) {
+                // Remove from hidden team first so peer team overrides
+                if (hidden.hasEntry(p.getName())) hidden.removeEntry(p.getName());
+                peerTeam.addEntry(p.getName());
             }
         }
     }
 
+    private static void cleanBoard(Scoreboard board) {
+        Team ht = board.getTeam(HIDDEN_TEAM);
+        if (ht != null) {
+            ht.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.ALWAYS);
+            for (Player p : Bukkit.getOnlinePlayers()) ht.removeEntry(p.getName());
+        }
+        Team pt = board.getTeam(PARASITE_TEAM);
+        if (pt != null) pt.unregister();
+    }
+
     /**
-     * Set Steve skin. Modern SkinsRestorer command: /skin set <player> <skin>
-     * Called from console so it has full admin permissions.
-     */
-    /**
-     * Sets player skin to Steve by running the command AS the player.
-     * "skin set steve_disguise" works as a player command; the admin
-     * variant with a target name does not work on this SR version.
+     * Sets player skin to Steve.
+     * REQUIRES: Run once in console: sr createcustom steve_disguise <url>
      */
     public static void setCrewSkin(Player player, ParasitePlugin plugin) {
-        if (Bukkit.getPluginManager().isPluginEnabled("SkinsRestorer")) {
-            player.performCommand("skin set steve_disguise");
-        }
+        if (!Bukkit.getPluginManager().isPluginEnabled("SkinsRestorer")) return;
+        org.bukkit.permissions.PermissionAttachment att = player.addAttachment(plugin);
+        att.setPermission("skinsrestorer.command", true);
+        att.setPermission("skinsrestorer.command.set", true);
+        player.performCommand("skin set steve_disguise");
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> player.removeAttachment(att), 40L);
     }
 
-    /**
-     * Restore original skin. /skin clear <player> resets to their Mojang account skin.
-     */
+    /** Restores player's original Mojang skin. */
     public static void restoreOriginalSkin(Player player, ParasitePlugin plugin) {
-        if (Bukkit.getPluginManager().isPluginEnabled("SkinsRestorer")) {
-            player.performCommand("skin clear");
-        }
+        if (!Bukkit.getPluginManager().isPluginEnabled("SkinsRestorer")) return;
+        org.bukkit.permissions.PermissionAttachment att = player.addAttachment(plugin);
+        att.setPermission("skinsrestorer.command", true);
+        att.setPermission("skinsrestorer.command.clear", true);
+        player.performCommand("skin clear");
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> player.removeAttachment(att), 40L);
     }
 
     public static void cleanup() {
         namesCurrentlyHidden = false;
-        Team t = Bukkit.getScoreboardManager().getMainScoreboard().getTeam(HIDDEN_TEAM);
-        if (t != null) t.unregister();
-        for (Player p : Bukkit.getOnlinePlayers()) {
-            Team pt = p.getScoreboard().getTeam(HIDDEN_TEAM);
-            if (pt != null) pt.unregister();
-        }
+        cleanBoard(Bukkit.getScoreboardManager().getMainScoreboard());
+        for (Player p : Bukkit.getOnlinePlayers()) cleanBoard(p.getScoreboard());
     }
 }

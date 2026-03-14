@@ -711,7 +711,7 @@ public class GameManager {
         }
 
         if (page > 0 || names.size() > perPage) {
-            p.sendActionBar("§7Page §f" + (page + 1) + "§7/§f" + ((names.size() + perPage - 1) / perPage));
+            p.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR, net.md_5.bungee.api.chat.TextComponent.fromLegacyText("§7Page §f" + (page + 1) + "§7/§f" + ((names.size() + perPage - 1) / perPage)));
         }
     }
 
