@@ -117,6 +117,31 @@ public class ParasiteCommand implements CommandExecutor {
                 sender.sendMessage("§8§m──────────────────────────");
             }
 
+            case "config" -> {
+                // /parasite config                 — show current values
+                // /parasite config <key> <value>   — set a value
+                if (args.length == 1) {
+                    sender.sendMessage(GameManager.PREFIX + "§7Current config:");
+                    sender.sendMessage(gm.getConfigSummary());
+                } else if (args.length == 3) {
+                    String key = args[1];
+                    try {
+                        int val = Integer.parseInt(args[2]);
+                        String err = gm.setConfigValue(key, val);
+                        if (err != null) {
+                            sender.sendMessage(GameManager.PREFIX + err);
+                        } else {
+                            sender.sendMessage(GameManager.PREFIX + "§aSet §e" + key + " §ato §f" + val);
+                        }
+                    } catch (NumberFormatException e) {
+                        sender.sendMessage(GameManager.PREFIX + "§cValue must be a number.");
+                    }
+                } else {
+                    sender.sendMessage(GameManager.PREFIX + "§cUsage: §e/parasite config §7or §e/parasite config <key> <value>");
+                    sender.sendMessage("§7Keys: §fday-duration, discussion-duration, voting-duration, swap-cooldown, min-players, max-players, lobby-countdown, parasite-count");
+                }
+            }
+
             default -> sendHelp(sender);
         }
         return true;
@@ -135,6 +160,7 @@ public class ParasiteCommand implements CommandExecutor {
         sender.sendMessage("§e/parasite addplayer <player> §7— Add to lobby");
         sender.sendMessage("§e/parasite skipday §7— Skip to discussion now");
         sender.sendMessage("§e/parasite skipvote §7— End voting now");
+        sender.sendMessage("§e/parasite config [key] [val] §7— View/change config");
         sender.sendMessage("§e/parasite info §7— Toggle info sidebar");
         sender.sendMessage("§e/parasite status §7— Show game info in chat");
         sender.sendMessage("§8§m──────────────────────────");

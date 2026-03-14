@@ -26,6 +26,27 @@ public class ItemUtils {
     }
 
     /** Skip vote paper */
+    public static ItemStack pageButton(String label, int targetPage) {
+        ItemStack item = new ItemStack(Material.ARROW, 1);
+        ItemMeta meta = item.getItemMeta();
+        meta.setDisplayName(label);
+        meta.setLore(Collections.singletonList("§8page:" + targetPage));
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    public static Integer getPageTarget(ItemStack item) {
+        if (item == null || item.getType() != Material.ARROW) return null;
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null || !meta.hasLore()) return null;
+        for (String line : meta.getLore()) {
+            if (line.startsWith("§8page:")) {
+                try { return Integer.parseInt(line.substring(7)); } catch (NumberFormatException ignored) {}
+            }
+        }
+        return null;
+    }
+
     public static ItemStack skipPaper() {
         ItemStack item = new ItemStack(Material.PAPER, 1);
         ItemMeta meta = item.getItemMeta();

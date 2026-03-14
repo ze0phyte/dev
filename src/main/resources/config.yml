@@ -1,11 +1,12 @@
 game:
-  min-players: 1
-  max-players: 25
+  min-players: 4
+  max-players: 16
   day-duration: 180          # 3 min in seconds
   discussion-duration: 120   # 2 min
   voting-duration: 15        # 15 sec
   parasite-swap-cooldown: 120 # 2 min in seconds
   lobby-countdown: 30
+  parasite-count: 1            # number of parasites per game
 
 locations:
   lobby: null

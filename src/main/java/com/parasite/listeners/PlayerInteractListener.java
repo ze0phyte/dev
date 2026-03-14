@@ -33,9 +33,21 @@ public class PlayerInteractListener implements Listener {
         if (event.getHand() != EquipmentSlot.HAND) return;
 
         ItemStack item = player.getInventory().getItemInMainHand();
-        if (item == null || item.getType() != Material.PAPER) return;
+        if (item == null) return;
 
         GameManager gm = plugin.getGameManager();
+
+        // Page navigation arrow
+        if (item.getType() == Material.ARROW) {
+            Integer targetPage = ItemUtils.getPageTarget(item);
+            if (targetPage != null && gm.getState() == GameState.VOTING) {
+                gm.giveVotingItemsPage(player, targetPage);
+                event.setCancelled(true);
+            }
+            return;
+        }
+
+        if (item.getType() != Material.PAPER) return;
 
         String target = ItemUtils.extractPaperTarget(item);
         if (target != null && item.getItemMeta().getDisplayName().startsWith("§c§lVOTE:")) {

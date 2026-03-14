@@ -28,6 +28,7 @@ public class GameManager {
     private BukkitTask phaseTask;
     private BukkitTask scoreboardTask;
     private BukkitTask staminaTask;
+    private final java.util.Map<UUID, Integer> votePages = new java.util.HashMap<>();
 
     private final Map<UUID, GamePlayer> gamePlayers = new LinkedHashMap<>();
     private final Map<UUID, Role> forcedRoles = new HashMap<>();
@@ -44,6 +45,7 @@ public class GameManager {
     private int cfgMinPlayers;
     private int cfgMaxPlayers;
     private int cfgLobbyCountdown;
+    private int cfgParasiteCount;
 
     public static final String PREFIX = "§8[§5☣§8] §r";
 
@@ -62,6 +64,7 @@ public class GameManager {
         cfgMinPlayers         = plugin.getConfig().getInt("game.min-players", 4);
         cfgMaxPlayers         = plugin.getConfig().getInt("game.max-players", 16);
         cfgLobbyCountdown     = plugin.getConfig().getInt("game.lobby-countdown", 30);
+        cfgParasiteCount      = plugin.getConfig().getInt("game.parasite-count", 1);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -176,7 +179,11 @@ public class GameManager {
             teleportBlind(p, spawnPoints.get(i++));
         }
 
-        SkinUtils.hideAllNames();
+        // Build parasite player list for peer-visibility nametags
+        List<Player> parasitePlayers = getAlivePlayers().stream()
+            .filter(p -> { GamePlayer gp = gamePlayers.get(p.getUniqueId()); return gp != null && gp.getRole() == Role.PARASITE; })
+            .collect(Collectors.toList());
+        SkinUtils.hideAllNames(parasitePlayers);
 
         new BukkitRunnable() {
             @Override
@@ -206,12 +213,14 @@ public class GameManager {
         }
         forcedRoles.clear();
 
-        boolean hasParasite = gamePlayers.values().stream().anyMatch(gp -> gp.getRole() == Role.PARASITE);
-        boolean hasDoctor   = gamePlayers.values().stream().anyMatch(gp -> gp.getRole() == Role.DOCTOR);
+        long forcedParasites = gamePlayers.values().stream().filter(gp -> gp.getRole() == Role.PARASITE).count();
+        boolean hasDoctor    = gamePlayers.values().stream().anyMatch(gp -> gp.getRole() == Role.DOCTOR);
 
         List<UUID> unassigned = ids.stream().filter(id -> !assigned.contains(id)).collect(Collectors.toList());
         int idx = 0;
-        if (!hasParasite && !unassigned.isEmpty()) {
+        // Assign parasites up to cfgParasiteCount
+        int parasitesNeeded = (int) Math.max(0, cfgParasiteCount - forcedParasites);
+        while (parasitesNeeded-- > 0 && idx < unassigned.size()) {
             gamePlayers.get(unassigned.get(idx++)).setRole(Role.PARASITE);
         }
         if (!hasDoctor && gamePlayers.size() >= 4 && idx < unassigned.size()) {
@@ -227,6 +236,20 @@ public class GameManager {
         currentDay++;
         state = GameState.IN_ROUND;
         timer = cfgDayDuration;
+
+        // Re-apply Steve skins every day (SR clears them at discussion)
+        List<Player> dayAlive = getAlivePlayers();
+        for (int si = 0; si < dayAlive.size(); si++) {
+            final Player sp = dayAlive.get(si);
+            plugin.getServer().getScheduler().runTaskLater(plugin,
+                () -> SkinUtils.setCrewSkin(sp, plugin), si * 8L);
+        }
+
+        // Re-apply parasite peer visibility each day
+        List<Player> dayParasites = dayAlive.stream()
+            .filter(p -> { GamePlayer gp = gamePlayers.get(p.getUniqueId()); return gp != null && gp.getRole() == Role.PARASITE; })
+            .collect(Collectors.toList());
+        SkinUtils.hideAllNames(dayParasites);
 
         for (GamePlayer gp : gamePlayers.values()) gp.resetRound();
 
@@ -474,7 +497,7 @@ public class GameManager {
                     public void run() {
                         if (!checkWinCondition()) {
                             scatterAlivePlayers();
-                            SkinUtils.hideAllNames();
+                            // hideAllNames called inside startDay() now
                             new BukkitRunnable() {
                                 @Override
                                 public void run() { startDay(); }
@@ -612,12 +635,17 @@ public class GameManager {
         reveal.append("§8§m══════════════════════════§r");
         broadcastAll(reveal.toString());
 
-        for (Player p : Bukkit.getOnlinePlayers()) {
-            p.sendTitle(title, sub, 10, 100, 30);
-            addBlindness(p, 5);
-            if (parasiteWon) p.playSound(p.getLocation(), Sound.ENTITY_WITHER_DEATH, 0.5f, 0.5f);
-            else p.playSound(p.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1f);
-            SkinUtils.restoreOriginalSkin(p, plugin);
+        List<Player> allOnline = new ArrayList<>(Bukkit.getOnlinePlayers());
+        for (int si = 0; si < allOnline.size(); si++) {
+            final Player sp = allOnline.get(si);
+            sp.sendTitle(title, sub, 10, 100, 30);
+            addBlindness(sp, 5);
+            if (parasiteWon) sp.playSound(sp.getLocation(), Sound.ENTITY_WITHER_DEATH, 0.5f, 0.5f);
+            else sp.playSound(sp.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1f);
+            // Stagger skin restores — SR rate-limits rapid consecutive commands
+            final int delay = si * 8;
+            plugin.getServer().getScheduler().runTaskLater(plugin,
+                () -> SkinUtils.restoreOriginalSkin(sp, plugin), delay);
         }
 
         new BukkitRunnable() {
@@ -647,15 +675,44 @@ public class GameManager {
     }
 
     private void giveVotingItems(Player p) {
+        giveVotingItemsPage(p, 0);
+    }
+
+    public void giveVotingItemsPage(Player p, int page) {
+        votePages.put(p.getUniqueId(), page);
         p.getInventory().clear();
-        int slot = 0;
+
+        // Build list of votable players
+        List<String> names = new ArrayList<>();
         for (GamePlayer gp : gamePlayers.values()) {
             if (!gp.isAlive()) continue;
             if (gp.getUUID().equals(p.getUniqueId())) continue;
-            if (slot < 8) p.getInventory().setItem(slot++, ItemUtils.votePaper(gp.getName()));
+            names.add(gp.getName());
         }
-        p.getInventory().setItem(8, ItemUtils.skipPaper());
-        // Doctor save papers REMOVED — doctor saves during round only
+
+        // 7 names per page (slots 0-6), slot 7 = prev (if page>0), slot 8 = next or skip
+        int perPage = 7;
+        int start = page * perPage;
+        int slot = 0;
+        for (int i = start; i < Math.min(start + perPage, names.size()); i++) {
+            p.getInventory().setItem(slot++, ItemUtils.votePaper(names.get(i)));
+        }
+
+        boolean hasPrev = page > 0;
+        boolean hasNext = (start + perPage) < names.size();
+
+        if (hasPrev) {
+            p.getInventory().setItem(7, ItemUtils.pageButton("§e« Previous", page - 1));
+        }
+        if (hasNext) {
+            p.getInventory().setItem(8, ItemUtils.pageButton("§eNext »", page + 1));
+        } else {
+            p.getInventory().setItem(8, ItemUtils.skipPaper());
+        }
+
+        if (page > 0 || names.size() > perPage) {
+            p.sendActionBar("§7Page §f" + (page + 1) + "§7/§f" + ((names.size() + perPage - 1) / perPage));
+        }
     }
 
     private void stripCombatItems(Player p) {
@@ -827,7 +884,13 @@ public class GameManager {
         if (scoreboardTask != null) { scoreboardTask.cancel(); scoreboardTask = null; }
         if (staminaTask != null) { staminaTask.cancel(); staminaTask = null; }
         SkinUtils.showAllNames();
-        for (Player p : Bukkit.getOnlinePlayers()) SkinUtils.restoreOriginalSkin(p, plugin);
+        List<Player> forceAll = new ArrayList<>(Bukkit.getOnlinePlayers());
+        for (int si = 0; si < forceAll.size(); si++) {
+            final Player sp = forceAll.get(si);
+            final int delay = si * 8;
+            plugin.getServer().getScheduler().runTaskLater(plugin,
+                () -> SkinUtils.restoreOriginalSkin(sp, plugin), delay);
+        }
         SkinUtils.cleanup();
         state = GameState.ENDED;
         broadcastAll(PREFIX + "§cGame forcefully stopped.");
@@ -835,6 +898,7 @@ public class GameManager {
     }
 
     private void resetGame() {
+        votePages.clear();
         gamePlayers.clear();
         forcedRoles.clear();
         currentDay = 0;
@@ -909,6 +973,75 @@ public class GameManager {
                 }
             }
         }
+    }
+
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  CONFIG GETTERS / SETTERS (for /parasite config command)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Set a config value at runtime and persist it.
+     * Returns an error message or null on success.
+     */
+    public String setConfigValue(String key, int value) {
+        switch (key.toLowerCase()) {
+            case "day-duration":
+                if (value < 30) return "§cMinimum 30 seconds.";
+                cfgDayDuration = value;
+                plugin.getConfig().set("game.day-duration", value);
+                break;
+            case "discussion-duration":
+                if (value < 10) return "§cMinimum 10 seconds.";
+                cfgDiscussionDuration = value;
+                plugin.getConfig().set("game.discussion-duration", value);
+                break;
+            case "voting-duration":
+                if (value < 5) return "§cMinimum 5 seconds.";
+                cfgVotingDuration = value;
+                plugin.getConfig().set("game.voting-duration", value);
+                break;
+            case "swap-cooldown":
+                if (value < 0) return "§cMust be >= 0.";
+                cfgSwapCooldown = value;
+                plugin.getConfig().set("game.parasite-swap-cooldown", value);
+                break;
+            case "min-players":
+                if (value < 2) return "§cMinimum 2 players.";
+                cfgMinPlayers = value;
+                plugin.getConfig().set("game.min-players", value);
+                break;
+            case "max-players":
+                if (value < 2 || value > 100) return "§cMust be 2-100.";
+                cfgMaxPlayers = value;
+                plugin.getConfig().set("game.max-players", value);
+                break;
+            case "lobby-countdown":
+                if (value < 5) return "§cMinimum 5 seconds.";
+                cfgLobbyCountdown = value;
+                plugin.getConfig().set("game.lobby-countdown", value);
+                break;
+            case "parasite-count":
+                if (value < 1) return "§cMinimum 1 parasite.";
+                cfgParasiteCount = value;
+                plugin.getConfig().set("game.parasite-count", value);
+                break;
+            default:
+                return "§cUnknown key. Valid: day-duration, discussion-duration, voting-duration, swap-cooldown, min-players, max-players, lobby-countdown, parasite-count";
+        }
+        plugin.saveConfig();
+        return null;
+    }
+
+    public String getConfigSummary() {
+        return "§7day-duration§f=" + cfgDayDuration
+             + " §7discussion§f=" + cfgDiscussionDuration
+             + " §7voting§f=" + cfgVotingDuration
+             + "\n§7swap-cooldown§f=" + cfgSwapCooldown
+             + " §7min§f=" + cfgMinPlayers
+             + " §7max§f=" + cfgMaxPlayers
+             + " §7lobby§f=" + cfgLobbyCountdown
+             + " §7parasites§f=" + cfgParasiteCount;
     }
 
 }
