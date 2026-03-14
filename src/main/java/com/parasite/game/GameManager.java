@@ -55,7 +55,7 @@ public class GameManager {
     }
 
     private void reloadConfig() {
-        cfgDayDuration        = plugin.getConfig().getInt("game.day-duration", 300);
+        cfgDayDuration        = plugin.getConfig().getInt("game.day-duration", 180);
         cfgDiscussionDuration = plugin.getConfig().getInt("game.discussion-duration", 120);
         cfgVotingDuration     = plugin.getConfig().getInt("game.voting-duration", 15);
         cfgSwapCooldown       = plugin.getConfig().getInt("game.parasite-swap-cooldown", 120);
@@ -152,6 +152,9 @@ public class GameManager {
         currentDay = 0;
         assignRoles();
 
+        // Clear all placed signs from previous round
+        clearArenaSigns();
+
         List<Player> active = getAlivePlayers();
         for (Player p : active) {
             p.setGameMode(GameMode.ADVENTURE);
@@ -159,7 +162,12 @@ public class GameManager {
             p.setHealth(p.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue());
             p.setFoodLevel(20);
             for (PotionEffect e : p.getActivePotionEffects()) p.removePotionEffect(e.getType());
-            SkinUtils.setCrewSkin(p, plugin);
+        }
+        // Stagger skin changes — SR rate-limits rapid consecutive commands
+        for (int si = 0; si < active.size(); si++) {
+            final Player sp = active.get(si);
+            plugin.getServer().getScheduler().runTaskLater(plugin,
+                () -> SkinUtils.setCrewSkin(sp, plugin), si * 5L);
         }
 
         List<Location> spawnPoints = generateSpawnRing(arenaLocation, active.size(), 8.0);
@@ -284,11 +292,17 @@ public class GameManager {
             for (Player p : Bukkit.getOnlinePlayers()) teleportBlind(p, discussionLocation);
         }
 
-        // Show names during discussion
+        // Show names and restore skins during discussion
         SkinUtils.showAllNames();
+        List<Player> aliveAtDisc = getAlivePlayers();
+        for (int si = 0; si < aliveAtDisc.size(); si++) {
+            final Player sp = aliveAtDisc.get(si);
+            plugin.getServer().getScheduler().runTaskLater(plugin,
+                () -> SkinUtils.restoreOriginalSkin(sp, plugin), si * 5L);
+        }
 
         // Remove combat items, keep signs
-        for (Player p : getAlivePlayers()) {
+        for (Player p : aliveAtDisc) {
             stripCombatItems(p);
         }
 
@@ -826,6 +840,8 @@ public class GameManager {
         currentDay = 0;
         timer = 0;
         state = GameState.WAITING;
+        for (Player p : Bukkit.getOnlinePlayers()) p.getInventory().clear();
+        clearArenaSigns();
         SkinUtils.showAllNames();
         SkinUtils.cleanup();
         ScoreboardUtils.clearAll();
@@ -869,4 +885,30 @@ public class GameManager {
     public Location getArenaLocation() { return arenaLocation; }
     public Location getDiscussionLocation() { return discussionLocation; }
     public Location getVotingLocation() { return votingLocation; }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  SIGN CLEANUP — remove all oak signs within 100 blocks of arena centre
+    // ══════════════════════════════════════════════════════════════════════════
+    private void clearArenaSigns() {
+        if (arenaLocation == null) return;
+        org.bukkit.World world = arenaLocation.getWorld();
+        if (world == null) return;
+        int cx = arenaLocation.getBlockX();
+        int cy = arenaLocation.getBlockY();
+        int cz = arenaLocation.getBlockZ();
+        int radius = 100;
+        for (int x = cx - radius; x <= cx + radius; x++) {
+            for (int y = Math.max(world.getMinHeight(), cy - radius);
+                     y <= Math.min(world.getMaxHeight() - 1, cy + radius); y++) {
+                for (int z = cz - radius; z <= cz + radius; z++) {
+                    org.bukkit.block.Block block = world.getBlockAt(x, y, z);
+                    if (block.getType() == Material.OAK_SIGN
+                            || block.getType() == Material.OAK_WALL_SIGN) {
+                        block.setType(Material.AIR);
+                    }
+                }
+            }
+        }
+    }
+
 }
