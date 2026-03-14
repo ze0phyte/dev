@@ -1,116 +1,149 @@
 package com.parasite.utils;
 
-import com.parasite.ParasitePlugin;
+import com.parasite.game.GameManager;
+import com.parasite.game.GamePlayer;
+import com.parasite.game.GameState;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.scoreboard.*;
 
-import java.util.Collection;
-import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
 
-public class SkinUtils {
+public class ScoreboardUtils {
 
-    private static final String HIDDEN_TEAM   = "parasite_hidden";
-    private static final String PARASITE_TEAM = "parasite_peer";
-    private static boolean namesCurrentlyHidden = false;
+    private static final Set<UUID> infoEnabled = new HashSet<>();
 
-    public static boolean areNamesHidden() { return namesCurrentlyHidden; }
-
-    /** Hide all nametags. Pass alive parasites so they can see each other. */
-    public static void hideAllNames(Collection<Player> parasites) {
-        namesCurrentlyHidden = true;
-        applyHideToBoard(Bukkit.getScoreboardManager().getMainScoreboard(), parasites, false);
-        for (Player p : Bukkit.getOnlinePlayers()) {
-            boolean isParasite = parasites.contains(p);
-            applyHideToBoard(p.getScoreboard(), parasites, isParasite);
+    public static void toggleInfo(Player player, GameManager gm) {
+        if (infoEnabled.contains(player.getUniqueId())) {
+            infoEnabled.remove(player.getUniqueId());
+            clearSidebar(player);
+            player.sendMessage(GameManager.PREFIX + "§7Info display §coff§7.");
+        } else {
+            infoEnabled.add(player.getUniqueId());
+            showInfo(player, gm);
+            player.sendMessage(GameManager.PREFIX + "§7Info display §aon§7. Run again to refresh or turn off.");
         }
     }
 
-    /** No-parasite overload for non-round phases. */
-    public static void hideAllNames() {
-        hideAllNames(Collections.emptyList());
-    }
+    public static void showInfo(Player player, GameManager gm) {
+        ScoreboardManager sbm = Bukkit.getScoreboardManager();
+        Scoreboard board = sbm.getNewScoreboard();
 
-    /** Called by ScoreboardUtils every time it assigns a new scoreboard to a player. */
-    public static void applyHiddenIfNeeded(Player player) {
-        if (namesCurrentlyHidden) {
-            applyHideToBoard(player.getScoreboard(), Collections.emptyList(), false);
-        }
-    }
+        // CRITICAL: re-apply hidden team to this new scoreboard if names should be hidden
+        SkinUtils.applyHiddenIfNeeded(player);
 
-    public static void showAllNames() {
-        namesCurrentlyHidden = false;
-        cleanBoard(Bukkit.getScoreboardManager().getMainScoreboard());
-        for (Player p : Bukkit.getOnlinePlayers()) {
-            cleanBoard(p.getScoreboard());
-        }
-    }
+        Objective obj = board.registerNewObjective("pinfo", Criteria.DUMMY, "§5§l☣ PARASITE ☣");
+        obj.setDisplaySlot(DisplaySlot.SIDEBAR);
 
-    // ── Private helpers ────────────────────────────────────────────────────
+        GameState state = gm.getState();
+        int line = 15;
 
-    private static void applyHideToBoard(Scoreboard board, Collection<Player> parasites, boolean isParasite) {
-        // 1. Hidden team — nobody sees nametags
-        Team hidden = board.getTeam(HIDDEN_TEAM);
-        if (hidden == null) hidden = board.registerNewTeam(HIDDEN_TEAM);
-        hidden.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.NEVER);
-        hidden.setCanSeeFriendlyInvisibles(false);
-        for (Player p : Bukkit.getOnlinePlayers()) {
-            if (!hidden.hasEntry(p.getName())) hidden.addEntry(p.getName());
-        }
+        if (state == GameState.WAITING || state == GameState.STARTING) {
+            setLine(board, obj, line--, "§r");
+            setLine(board, obj, line--, "§7Status: " + (state == GameState.STARTING ? "§eStarting..." : "§7Waiting"));
+            setLine(board, obj, line--, "§7Players: §f" + gm.getPlayerCount() + " §7/ §f" + gm.getMaxPlayers());
+            setLine(board, obj, line--, "§7Min to start: §f" + gm.getMinPlayers());
+            setLine(board, obj, line--, "§r§r");
+            setLine(board, obj, line--, "§b/pjoin §7to join");
+        } else {
+            long alive = gm.getAlivePlayers().size();
+            long total = gm.getAllGamePlayers().size();
+            long dead = total - alive;
 
-        // 2. Parasite peer team — only on parasites' scoreboards
-        Team old = board.getTeam(PARASITE_TEAM);
-        if (old != null) old.unregister();
+            String phase = switch (state) {
+                case IN_ROUND   -> "§aIn Round";
+                case DISCUSSION -> "§eDiscussion";
+                case VOTING     -> "§cVoting";
+                case ROUND_END  -> "§6Results";
+                default         -> "§7-";
+            };
 
-        if (isParasite && !parasites.isEmpty()) {
-            Team peerTeam = board.registerNewTeam(PARASITE_TEAM);
-            peerTeam.setPrefix("§4☣ §r");
-            peerTeam.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.FOR_OWN_TEAM);
-            peerTeam.setCanSeeFriendlyInvisibles(true);
-            for (Player p : parasites) {
-                // Remove from hidden team first so peer team overrides
-                if (hidden.hasEntry(p.getName())) hidden.removeEntry(p.getName());
-                peerTeam.addEntry(p.getName());
+            // Header lines — compact to leave room for all players
+            java.util.List<GamePlayer> allPlayers = new java.util.ArrayList<>(gm.getAllGamePlayers());
+            int headerLines = 4; // day, phase, time, alive/dead
+            int maxPlayers = 15 - headerLines;
+
+            setLine(board, obj, line--, "§7Day: §f" + gm.getCurrentDay() + "  §7Phase: " + phase);
+            setLine(board, obj, line--, "§7Time: §f" + formatTime(gm.getTimer()));
+            setLine(board, obj, line--, "§7Alive: §a" + alive + "  §7Dead: §c" + dead);
+            setLine(board, obj, line--, "§8§m─────────────────");
+
+            int shown = 0;
+            for (GamePlayer gp : allPlayers) {
+                if (shown >= maxPlayers) {
+                    setLine(board, obj, line--, "§8... +" + (allPlayers.size() - shown) + " more");
+                    break;
+                }
+                String status = gp.isAlive() ? "§a✔" : "§c✘";
+                String roleTag = player.isOp()
+                        ? " §8[" + gp.getRole().getColor() + stripColor(gp.getRole().getDisplay()) + "§8]"
+                        : "";
+                String entry = status + " §f" + gp.getName() + roleTag;
+                setLine(board, obj, line--, entry);
+                shown++;
             }
         }
+
+        player.setScoreboard(board);
+
+        // Re-apply name hiding to the new scoreboard
+        SkinUtils.applyHiddenIfNeeded(player);
     }
 
-    private static void cleanBoard(Scoreboard board) {
-        Team ht = board.getTeam(HIDDEN_TEAM);
-        if (ht != null) {
-            ht.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.ALWAYS);
-            for (Player p : Bukkit.getOnlinePlayers()) ht.removeEntry(p.getName());
+    public static void refreshAll(GameManager gm) {
+        for (UUID id : infoEnabled) {
+            Player p = Bukkit.getPlayer(id);
+            if (p != null) showInfo(p, gm);
         }
-        Team pt = board.getTeam(PARASITE_TEAM);
-        if (pt != null) pt.unregister();
     }
 
-    /**
-     * Sets player skin to Steve.
-     * REQUIRES: Run once in console: sr createcustom steve_disguise <url>
-     */
-    public static void setCrewSkin(Player player, ParasitePlugin plugin) {
-        if (!Bukkit.getPluginManager().isPluginEnabled("SkinsRestorer")) return;
-        org.bukkit.permissions.PermissionAttachment att = player.addAttachment(plugin);
-        att.setPermission("skinsrestorer.command", true);
-        att.setPermission("skinsrestorer.command.set", true);
-        player.performCommand("skin set steve_disguise");
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> player.removeAttachment(att), 40L);
+    public static void clearSidebar(Player player) {
+        Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
+        player.setScoreboard(board);
+        // Re-apply name hiding to fresh scoreboard
+        SkinUtils.applyHiddenIfNeeded(player);
     }
 
-    /** Restores player's original Mojang skin. */
-    public static void restoreOriginalSkin(Player player, ParasitePlugin plugin) {
-        if (!Bukkit.getPluginManager().isPluginEnabled("SkinsRestorer")) return;
-        org.bukkit.permissions.PermissionAttachment att = player.addAttachment(plugin);
-        att.setPermission("skinsrestorer.command", true);
-        att.setPermission("skinsrestorer.command.clear", true);
-        player.performCommand("skin clear");
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> player.removeAttachment(att), 40L);
+    public static void clearAll() {
+        infoEnabled.clear();
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            p.setScoreboard(Bukkit.getScoreboardManager().getNewScoreboard());
+        }
     }
 
-    public static void cleanup() {
-        namesCurrentlyHidden = false;
-        cleanBoard(Bukkit.getScoreboardManager().getMainScoreboard());
-        for (Player p : Bukkit.getOnlinePlayers()) cleanBoard(p.getScoreboard());
+    public static void updateTabList(GameManager gm) {
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (p.isOp()) updateTabList(p, gm);
+        }
+    }
+
+    public static void updateTabList(Player player, GameManager gm) {
+        if (!player.isOp()) return;
+        GameState state = gm.getState();
+        String header, footer;
+        if (state == GameState.WAITING || state == GameState.STARTING) {
+            header = "\n§5§l☣ PARASITE §8| §7Admin View\n";
+            footer = "\n§7Lobby: §a" + gm.getPlayerCount() + " §7/ §f" + gm.getMaxPlayers() + "\n";
+        } else {
+            header = "\n§5§l☣ PARASITE §8| §7Day " + gm.getCurrentDay() + " — " + state.name() + "\n";
+            footer = "\n§7Alive: §a" + gm.getAlivePlayers().size()
+                    + "  §7Dead: §c" + (gm.getAllGamePlayers().stream().filter(g -> !g.isAlive()).count()) + "\n";
+        }
+        player.setPlayerListHeaderFooter(header, footer);
+    }
+
+    private static void setLine(Scoreboard board, Objective obj, int score, String text) {
+        if (text.length() > 40) text = text.substring(0, 40);
+        obj.getScore(text).setScore(score);
+    }
+
+    private static String formatTime(int seconds) {
+        return String.format("%d:%02d", seconds / 60, seconds % 60);
+    }
+
+    private static String stripColor(String s) {
+        return s.replaceAll("§[0-9a-fk-or]", "");
     }
 }

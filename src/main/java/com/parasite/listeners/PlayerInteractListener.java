@@ -31,16 +31,20 @@ public class PlayerInteractListener implements Listener {
     public void onInteract(PlayerInteractEvent event) {
         Player player = event.getPlayer();
         if (event.getHand() != EquipmentSlot.HAND) return;
+        // Only fire on right-click, not physical (stepping on pressure plates etc)
+        if (event.getAction() != org.bukkit.event.block.Action.RIGHT_CLICK_AIR
+                && event.getAction() != org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK) return;
 
         ItemStack item = player.getInventory().getItemInMainHand();
         if (item == null) return;
 
         GameManager gm = plugin.getGameManager();
 
-        // Page navigation arrow
-        if (item.getType() == Material.ARROW) {
+        // Page navigation feather — only during voting
+        if (item.getType() == Material.FEATHER) {
+            if (gm.getState() != GameState.VOTING) return;
             Integer targetPage = ItemUtils.getPageTarget(item);
-            if (targetPage != null && gm.getState() == GameState.VOTING) {
+            if (targetPage != null) {
                 gm.giveVotingItemsPage(player, targetPage);
                 event.setCancelled(true);
             }

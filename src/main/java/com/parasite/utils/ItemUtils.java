@@ -27,7 +27,7 @@ public class ItemUtils {
 
     /** Skip vote paper */
     public static ItemStack pageButton(String label, int targetPage) {
-        ItemStack item = new ItemStack(Material.ARROW, 1);
+        ItemStack item = new ItemStack(Material.FEATHER, 1);
         ItemMeta meta = item.getItemMeta();
         meta.setDisplayName(label);
         meta.setLore(Collections.singletonList("§8page:" + targetPage));
@@ -36,7 +36,7 @@ public class ItemUtils {
     }
 
     public static Integer getPageTarget(ItemStack item) {
-        if (item == null || item.getType() != Material.ARROW) return null;
+        if (item == null || item.getType() != Material.FEATHER) return null;
         ItemMeta meta = item.getItemMeta();
         if (meta == null || !meta.hasLore()) return null;
         for (String line : meta.getLore()) {
