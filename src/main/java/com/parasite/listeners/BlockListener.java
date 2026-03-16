@@ -8,8 +8,11 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 
 public class BlockListener implements Listener {
@@ -41,11 +44,28 @@ public class BlockListener implements Listener {
         event.setCancelled(true);
     }
 
+    /** Signs have CanPlaceOn NBT — Adventure mode handles placement natively. Block everything else. */
+    @EventHandler(priority = EventPriority.LOW)
+    public void onPlace(BlockPlaceEvent event) {
+        Player player = event.getPlayer();
+        GameManager gm = plugin.getGameManager();
+        if (!gm.isRunning()) return;
+        if (gm.getGamePlayer(player.getUniqueId()) == null) return;
+
+        GameState state = gm.getState();
+        boolean isSign = event.getBlockPlaced().getType().name().contains("SIGN");
+        boolean placePhase = state == GameState.IN_ROUND || state == GameState.DISCUSSION;
+
+        if (isSign && placePhase) return;
+
+        event.setCancelled(true);
+    }
+
     /**
      * Right-click block interactions:
-     * - BARREL = food station
-     * - BROWN_MUSHROOM_BLOCK = sample collection point
-     * - CHEST = lab chest for sample submission
+     * - BARREL       = food station (right-click to eat)
+     * - SPONGE       = sample collection point (medbay)
+     * - CHEST        = lab chest for sample submission
      */
     @EventHandler(priority = EventPriority.LOW)
     public void onBlockInteract(PlayerInteractEvent event) {
@@ -63,33 +83,14 @@ public class BlockListener implements Listener {
             if (gm.handleFoodStation(player, event.getClickedBlock())) {
                 event.setCancelled(true);
             }
-        } else if (type == Material.BROWN_MUSHROOM_BLOCK || type == Material.SPONGE) {
-            // Sample collection block — place these in medbay
+        } else if (type == Material.SPONGE) {
             if (gm.handleSampleCollect(player)) {
                 event.setCancelled(true);
             }
         } else if (type == Material.CHEST) {
-            // Lab chest — submit samples
             if (gm.handleLabChest(player)) {
                 event.setCancelled(true);
             }
         }
-    }
-
-    /** Signs have CanPlaceOn NBT set — Adventure mode handles placement natively. Block everything else. */    /** Signs have CanPlaceOn NBT set — Adventure mode handles placement natively. Block everything else. */
-    @EventHandler(priority = EventPriority.LOW)
-    public void onPlace(BlockPlaceEvent event) {
-        Player player = event.getPlayer();
-        GameManager gm = plugin.getGameManager();
-        if (!gm.isRunning()) return;
-        if (gm.getGamePlayer(player.getUniqueId()) == null) return;
-
-        GameState state = gm.getState();
-        boolean isSign = event.getBlockPlaced().getType().name().contains("SIGN");
-        boolean placePhase = state == GameState.IN_ROUND || state == GameState.DISCUSSION;
-
-        if (isSign && placePhase) return;
-
-        event.setCancelled(true);
     }
 }
