@@ -41,7 +41,42 @@ public class BlockListener implements Listener {
         event.setCancelled(true);
     }
 
-    /** Signs have CanPlaceOn NBT set — Adventure mode handles placement natively. Block everything else. */
+    /**
+     * Right-click block interactions:
+     * - BARREL = food station
+     * - BROWN_MUSHROOM_BLOCK = sample collection point
+     * - CHEST = lab chest for sample submission
+     */
+    @EventHandler(priority = EventPriority.LOW)
+    public void onBlockInteract(PlayerInteractEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
+        if (event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+        if (event.getClickedBlock() == null) return;
+
+        Player player = event.getPlayer();
+        GameManager gm = plugin.getGameManager();
+        if (!gm.isRunning()) return;
+
+        Material type = event.getClickedBlock().getType();
+
+        if (type == Material.BARREL) {
+            if (gm.handleFoodStation(player, event.getClickedBlock())) {
+                event.setCancelled(true);
+            }
+        } else if (type == Material.BROWN_MUSHROOM_BLOCK || type == Material.SPONGE) {
+            // Sample collection block — place these in medbay
+            if (gm.handleSampleCollect(player)) {
+                event.setCancelled(true);
+            }
+        } else if (type == Material.CHEST) {
+            // Lab chest — submit samples
+            if (gm.handleLabChest(player)) {
+                event.setCancelled(true);
+            }
+        }
+    }
+
+    /** Signs have CanPlaceOn NBT set — Adventure mode handles placement natively. Block everything else. */    /** Signs have CanPlaceOn NBT set — Adventure mode handles placement natively. Block everything else. */
     @EventHandler(priority = EventPriority.LOW)
     public void onPlace(BlockPlaceEvent event) {
         Player player = event.getPlayer();

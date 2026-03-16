@@ -14,7 +14,9 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerInteractAtEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerEditBookEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
+import org.bukkit.inventory.meta.BookMeta;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 
@@ -117,6 +119,33 @@ public class PlayerInteractListener implements Listener {
                     player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1.5f);
                 }
             }
+            event.setCancelled(true);
+        }
+    }
+
+    // ── Last Will book close ────────────────────────────────────────────────
+    @EventHandler
+    public void onBookEdit(PlayerEditBookEvent event) {
+        if (!event.isSigning()) return;
+        Player player = event.getPlayer();
+        GameManager gm = plugin.getGameManager();
+        if (gm.getGamePlayer(player.getUniqueId()) == null) return;
+        gm.handleLastWillClose(player, event.getNewBookMeta());
+    }
+
+    // ── Séance: dead player right-clicks a living player to vote haunt ───────
+    @EventHandler
+    public void onSeanceInteract(PlayerInteractAtEntityEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
+        if (!(event.getRightClicked() instanceof Player target)) return;
+        Player player = event.getPlayer();
+        GameManager gm = plugin.getGameManager();
+        GamePlayer gp = gm.getGamePlayer(player.getUniqueId());
+        if (gp == null || gp.isAlive()) return; // only dead players
+        ItemStack held = player.getInventory().getItemInMainHand();
+        // Dead players hold a bone as their séance item (given on death)
+        if (held != null && held.getType() == org.bukkit.Material.BONE) {
+            gm.handleSeanceVote(player, target);
             event.setCancelled(true);
         }
     }

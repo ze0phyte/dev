@@ -30,6 +30,27 @@ public class GameManager {
     private BukkitTask staminaTask;
     private final java.util.Map<UUID, Integer> votePages = new java.util.HashMap<>();
 
+    // ── New feature state ──────────────────────────────────────────────────
+    // Round replay log
+    private final java.util.List<String> roundLog = new java.util.ArrayList<>();
+    // Blackout — fired once per game
+    private boolean blackoutUsed = false;
+    private BukkitTask blackoutTask = null;
+    // Weather shift
+    private String currentWeather = "clear";
+    // Sample collection — tracks who completed samples and when
+    private final java.util.Map<UUID, Integer> sampleRoundCompleted = new java.util.HashMap<>();
+    // Food stations — list of locations set by OP, per-player cooldown 60s
+    private final java.util.List<Location> foodStations = new java.util.ArrayList<>();
+    // Séance — dead players vote to haunt someone
+    private final java.util.Map<UUID, UUID> seanceVotes = new java.util.HashMap<>(); // voter->target
+    private UUID hauntedPlayer = null;
+    private BukkitTask hauntTask = null;
+    // Vital monitor task
+    private BukkitTask vitalTask = null;
+    // Nutrition required per round (scales with day duration)
+    private int nutritionRequired = 2;
+
     private final Map<UUID, GamePlayer> gamePlayers = new LinkedHashMap<>();
     private final Map<UUID, Role> forcedRoles = new HashMap<>();
 
@@ -47,7 +68,7 @@ public class GameManager {
     private int cfgLobbyCountdown;
     private int cfgParasiteCount;
 
-    public static final String PREFIX = "§8[§5☣§8] §r";
+    public static final String PREFIX = "§8[§c☣§8] §r";
 
     public GameManager(ParasitePlugin plugin) {
         this.plugin = plugin;
@@ -173,7 +194,7 @@ public class GameManager {
                 () -> SkinUtils.setCrewSkin(sp, plugin), si * 5L);
         }
 
-        List<Location> spawnPoints = generateSpawnRing(arenaLocation, active.size(), 8.0);
+        List<Location> spawnPoints = generateSpawnRing(arenaLocation, active.size(), 24.0);
         int i = 0;
         for (Player p : active) {
             teleportBlind(p, spawnPoints.get(i++));
@@ -236,6 +257,26 @@ public class GameManager {
         currentDay++;
         state = GameState.IN_ROUND;
         timer = cfgDayDuration;
+        nutritionRequired = cfgDayDuration >= 240 ? 3 : 2;
+
+        // Round log entry
+        roundLog.add("§8--- Day " + currentDay + " ---");
+
+        // Weather shift — 40% chance of special weather
+        applyWeatherShift();
+
+        // Blackout — schedule once per game at random time between day 2 and day 4
+        if (!blackoutUsed && currentDay == 2) scheduleBlackout();
+
+        // Reset séance
+        seanceVotes.clear();
+        cancelHaunt();
+
+        // Reset sample results from last round
+        for (GamePlayer gp : gamePlayers.values()) {
+            gp.setSampleResultReady(false);
+            gp.setSamplesCollected(0);
+        }
 
         // Re-apply Steve skins every day (SR clears them at discussion)
         List<Player> dayAlive = getAlivePlayers();
@@ -276,6 +317,7 @@ public class GameManager {
         }.runTaskTimer(plugin, 20L, 20L);
 
         startStaminaTask();
+        startVitalTask();
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -330,6 +372,23 @@ public class GameManager {
         }
 
         broadcastAll(PREFIX + "§e§l☎ DISCUSSION TIME! §7" + cfgDiscussionDuration + "s to discuss.");
+
+        // Deliver sample results from last round
+        deliverSampleResults();
+
+        // Broadcast last wills of players who died this round
+        for (GamePlayer gp : gamePlayers.values()) {
+            if (!gp.isAlive() && gp.getLastWill() != null) {
+                broadcastAll("§8[§c✉ Last Will§8] §f" + gp.getName() + "§7: §f" + gp.getLastWill());
+                gp.setLastWill(null);
+            }
+        }
+
+        // Announce séance haunt result
+        if (hauntedPlayer != null) {
+            Player hp = Bukkit.getPlayer(hauntedPlayer);
+            if (hp != null) broadcastAll(PREFIX + "§8The dead are restless... §7" + hp.getName() + " §8feels watched.");
+        }
         for (Player p : getAlivePlayers()) {
             p.sendTitle("§e§lDISCUSSION", "§7Talk! Who's the parasite?", 10, 50, 20);
             p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1f, 1f);
@@ -543,6 +602,7 @@ public class GameManager {
 
         tgp.setInfected(true);
         pgp.setInfectedThisRound(true);
+        roundLog.add("§8Day " + currentDay + " — §c" + parasite.getName() + " §8infected §c" + target.getName());
         parasite.sendMessage(PREFIX + "§4☣ §7You infected §f" + target.getName() + "§7! They will die before discussion unless the Doctor saves them.");
         parasite.playSound(parasite.getLocation(), Sound.ENTITY_SPIDER_AMBIENT, 1f, 0.5f);
     }
@@ -569,17 +629,18 @@ public class GameManager {
         Location parasiteLoc = parasite.getLocation().clone();
         Location targetLoc = target.getLocation().clone();
 
-        // Blind everyone during swap
-        for (Player p : getAlivePlayers()) {
-            p.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 40, 255, false, false));
-        }
-
+        // Silent swap — no blindness, no sound, completely unnoticeable to observers
+        // Use velocity trick to smooth out MC's teleport lerp
         parasite.teleport(targetLoc);
         target.teleport(parasiteLoc);
+        // Zero out velocity so there's no position lerp artifact
+        parasite.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+        target.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
 
         pgp.setLastSwapMillis(now);
-        parasite.sendMessage(PREFIX + "§5You swapped positions with someone on the ship!");
-        parasite.playSound(parasite.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 0.2f, 2f);
+        roundLog.add("§8Day " + currentDay + " — §cParasite §8swapped with §c" + target.getName());
+        // Only the parasite gets a private confirm — no sound, no broadcast
+        parasite.sendMessage(PREFIX + "§c☣ Swap complete.");
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -626,6 +687,15 @@ public class GameManager {
         String title = parasiteWon ? "§4§l☣ PARASITE WINS ☣" : "§a§lCREW WINS!";
         String sub   = parasiteWon ? "§cThe parasite consumed the crew..." : "§7The parasite was eliminated!";
 
+        // ── Round Replay ──────────────────────────────────────────────────
+        if (!roundLog.isEmpty()) {
+            broadcastAll("§8§m──────────────────────────");
+            broadcastAll("§c§lROUND REPLAY");
+            for (String entry : roundLog) broadcastAll(entry);
+            broadcastAll("§8§m──────────────────────────");
+        }
+        roundLog.clear();
+
         StringBuilder reveal = new StringBuilder("\n§8§m══════════════════════════§r\n§e§l         GAME OVER\n\n");
         for (GamePlayer gp : gamePlayers.values()) {
             String status = gp.isAlive() ? "§a(Alive)" : "§c(Dead)";
@@ -663,7 +733,21 @@ public class GameManager {
         p.getInventory().setItem(0, ItemUtils.signStack(16));
         p.getInventory().setItem(1, ItemUtils.signStack(16));
         p.getInventory().setItem(2, ItemUtils.crewAxe());
-        p.getInventory().setItem(3, ItemUtils.scanCrossbow()); // pre-loaded crossbow, shoot a player to scan
+        // Last will book in slot 7
+        org.bukkit.inventory.ItemStack willBook = new org.bukkit.inventory.ItemStack(org.bukkit.Material.WRITABLE_BOOK);
+        org.bukkit.inventory.meta.BookMeta willMeta = (org.bukkit.inventory.meta.BookMeta) willBook.getItemMeta();
+        willMeta.setDisplayName("§fLast Will");
+        willMeta.addPage("");
+        willBook.setItemMeta(willMeta);
+        p.getInventory().setItem(7, willBook);
+
+        // Scanner count scales with alive players
+        int alive = getAlivePlayers().size();
+        int scanners = alive >= 13 ? 4 : alive >= 8 ? 3 : alive >= 5 ? 2 : 1;
+        for (int s = 0; s < scanners; s++) {
+            p.getInventory().setItem(3 + s, ItemUtils.scanCrossbow());
+        }
+
         // Role card in slot 8
         if (role == Role.PARASITE) {
             p.getInventory().setItem(8, ItemUtils.parasiteIndicator());
@@ -728,7 +812,7 @@ public class GameManager {
     private void scatterAlivePlayers() {
         if (arenaLocation == null) return;
         List<Player> alive = getAlivePlayers();
-        List<Location> spawns = generateSpawnRing(arenaLocation, alive.size(), 8.0);
+        List<Location> spawns = generateSpawnRing(arenaLocation, alive.size(), 24.0);
         int i = 0;
         for (Player p : alive) {
             teleportBlind(p, spawns.get(i++));
@@ -797,6 +881,9 @@ public class GameManager {
 
     private void startStaminaTask() {
         if (staminaTask != null) { staminaTask.cancel(); staminaTask = null; }
+        if (vitalTask != null) { vitalTask.cancel(); vitalTask = null; }
+        if (blackoutTask != null) { blackoutTask.cancel(); blackoutTask = null; }
+        cancelHaunt();
         staminaTask = new BukkitRunnable() {
             @Override
             public void run() {
@@ -899,6 +986,12 @@ public class GameManager {
 
     private void resetGame() {
         votePages.clear();
+        roundLog.clear();
+        blackoutUsed = false;
+        seanceVotes.clear();
+        hauntedPlayer = null;
+        sampleRoundCompleted.clear();
+        foodStations.clear();
         gamePlayers.clear();
         forcedRoles.clear();
         currentDay = 0;
@@ -1042,6 +1135,312 @@ public class GameManager {
              + " §7max§f=" + cfgMaxPlayers
              + " §7lobby§f=" + cfgLobbyCountdown
              + " §7parasites§f=" + cfgParasiteCount;
+    }
+
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  VITAL MONITOR — shows nutrition status in action bar every 4 seconds
+    // ══════════════════════════════════════════════════════════════════════════
+    private void startVitalTask() {
+        if (vitalTask != null) { vitalTask.cancel(); vitalTask = null; }
+        vitalTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (state != GameState.IN_ROUND) { cancel(); vitalTask = null; return; }
+                for (Player p : getAlivePlayers()) {
+                    GamePlayer gp = gamePlayers.get(p.getUniqueId());
+                    if (gp == null) continue;
+                    int eaten = gp.getNutritionCount();
+                    int required = nutritionRequired;
+                    String bar = buildNutritionBar(eaten, required);
+                    String status = gp.isInfected() ? " §c[INFECTED?]" : "";
+                    String msg = "§7Nutrition: " + bar + " §8(" + eaten + "/" + required + ")" + status;
+                    p.spigot().sendMessage(
+                        net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                        net.md_5.bungee.api.chat.TextComponent.fromLegacyText(msg));
+                }
+            }
+        }.runTaskTimer(plugin, 0L, 80L); // every 4 seconds
+    }
+
+    private String buildNutritionBar(int eaten, int required) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < required; i++) {
+            sb.append(i < eaten ? "§a█" : "§8█");
+        }
+        return sb.toString();
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  FOOD STATIONS — right-click a specific block to eat
+    //  Set stations with /parasite addfoodstation
+    //  60-second per-player cooldown per use
+    // ══════════════════════════════════════════════════════════════════════════
+    public boolean handleFoodStation(Player player, org.bukkit.block.Block block) {
+        if (state != GameState.IN_ROUND) return false;
+        GamePlayer gp = gamePlayers.get(player.getUniqueId());
+        if (gp == null || !gp.isAlive()) return false;
+
+        boolean isStation = foodStations.stream().anyMatch(loc ->
+            loc.getBlockX() == block.getX() &&
+            loc.getBlockY() == block.getY() &&
+            loc.getBlockZ() == block.getZ() &&
+            loc.getWorld().equals(block.getWorld()));
+        if (!isStation) return false;
+
+        long now = System.currentTimeMillis();
+        long elapsed = (now - gp.getLastFoodStationUse()) / 1000;
+        if (gp.getLastFoodStationUse() != 0 && elapsed < 60) {
+            long remaining = 60 - elapsed;
+            player.sendMessage(PREFIX + "§cFood station on cooldown! §e" + remaining + "s remaining.");
+            return true;
+        }
+
+        gp.setLastFoodStationUse(now);
+        gp.incrementNutrition();
+        player.setFoodLevel(Math.min(20, player.getFoodLevel() + 6));
+        player.setSaturation(Math.min(20, player.getSaturation() + 3));
+        player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_PLAYER_BURP, 0.5f, 1f);
+        player.sendMessage(PREFIX + "§aYou ate. Nutrition: §f" + gp.getNutritionCount() + "§7/§f" + nutritionRequired);
+        return true;
+    }
+
+    public void addFoodStation(Location loc) {
+        foodStations.add(loc.getBlock().getLocation());
+        plugin.getConfig().set("foodstations." + foodStations.size(), LocationUtils.serialize(loc));
+        plugin.saveConfig();
+    }
+
+    public List<Location> getFoodStations() { return foodStations; }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  WEATHER SHIFT — random each round
+    // ══════════════════════════════════════════════════════════════════════════
+    private void applyWeatherShift() {
+        if (arenaLocation == null) return;
+        org.bukkit.World world = arenaLocation.getWorld();
+        if (world == null) return;
+
+        double roll = Math.random();
+        if (roll < 0.35) {
+            // Rain — mild visibility reduction via particles, no actual effect
+            currentWeather = "rain";
+            world.setStorm(true);
+            world.setThundering(false);
+            broadcastAll(PREFIX + "§9⛈ Rain settles over the ship...");
+        } else if (roll < 0.55) {
+            // Thunder — random sound cues, masking audio
+            currentWeather = "thunder";
+            world.setStorm(true);
+            world.setThundering(true);
+            broadcastAll(PREFIX + "§8⚡ A thunderstorm rolls in. Stay sharp.");
+        } else if (roll < 0.70) {
+            // Clear — slight speed boost to all crew
+            currentWeather = "clear";
+            world.setStorm(false);
+            world.setThundering(false);
+            for (Player p : getAlivePlayers()) {
+                p.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, cfgDayDuration * 20, 0, false, false));
+            }
+            broadcastAll(PREFIX + "§e☀ Clear skies. The crew moves faster.");
+        } else {
+            // No special weather
+            currentWeather = "normal";
+            world.setStorm(false);
+            world.setThundering(false);
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  BLACKOUT — fires once per game at a random time in day 2
+    // ══════════════════════════════════════════════════════════════════════════
+    private void scheduleBlackout() {
+        blackoutUsed = true;
+        // Random time between 30s and (dayDuration - 40s) into the round
+        int delay = 30 + new Random().nextInt(Math.max(1, cfgDayDuration - 70));
+        blackoutTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (state != GameState.IN_ROUND) return;
+                // Parasite gets 5s warning
+                for (GamePlayer gp : gamePlayers.values()) {
+                    if (gp.getRole() == Role.PARASITE && gp.isAlive()) {
+                        Player p = Bukkit.getPlayer(gp.getUUID());
+                        if (p != null) p.sendMessage(PREFIX + "§4⚠ Blackout in 5 seconds. Move.");
+                    }
+                }
+                // 5 ticks later — blackout for everyone
+                plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                    if (state != GameState.IN_ROUND) return;
+                    broadcastAll(PREFIX + "§8§l⬛ BLACKOUT! Power failure...");
+                    roundLog.add("§8Day " + currentDay + " — Blackout triggered.");
+                    for (Player p : getAlivePlayers()) {
+                        addBlindness(p, 20);
+                        p.playSound(p.getLocation(), org.bukkit.Sound.BLOCK_BEACON_DEACTIVATE, 1f, 0.5f);
+                    }
+                    // Restore after 20s
+                    plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                        broadcastAll(PREFIX + "§e§lPower restored.");
+                        for (Player p : getAlivePlayers())
+                            p.playSound(p.getLocation(), org.bukkit.Sound.BLOCK_BEACON_ACTIVATE, 1f, 1f);
+                    }, 400L);
+                }, 100L);
+            }
+        }.runTaskLater(plugin, delay * 20L);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  SAMPLE COLLECTION — medbay mechanic
+    //  Right-click sample block -> collect. Bring 3 to lab chest -> reveal next round
+    // ══════════════════════════════════════════════════════════════════════════
+    public boolean handleSampleCollect(Player player) {
+        if (state != GameState.IN_ROUND) return false;
+        GamePlayer gp = gamePlayers.get(player.getUniqueId());
+        if (gp == null || !gp.isAlive()) return false;
+        if (gp.getSamplesCollected() >= 3) {
+            player.sendMessage(PREFIX + "§7You already have 3 samples. Bring them to the lab chest.");
+            return true;
+        }
+        gp.setSamplesCollected(gp.getSamplesCollected() + 1);
+        player.sendMessage(PREFIX + "§aSample collected! §8(" + gp.getSamplesCollected() + "/3)");
+        player.playSound(player.getLocation(), org.bukkit.Sound.ITEM_BOTTLE_FILL, 1f, 1.5f);
+        return true;
+    }
+
+    public boolean handleLabChest(Player player) {
+        if (state != GameState.IN_ROUND) return false;
+        GamePlayer gp = gamePlayers.get(player.getUniqueId());
+        if (gp == null || !gp.isAlive()) return false;
+
+        // Check if already used sample this round or last 2 rounds
+        int lastUsed = sampleRoundCompleted.getOrDefault(player.getUniqueId(), -99);
+        if (currentDay - lastUsed < 2) {
+            player.sendMessage(PREFIX + "§cSample analysis on cooldown for " + (2 - (currentDay - lastUsed)) + " more round(s).");
+            return true;
+        }
+        if (gp.getSamplesCollected() < 3) {
+            player.sendMessage(PREFIX + "§cNeed 3 samples first. You have §e" + gp.getSamplesCollected() + "§c.");
+            return true;
+        }
+
+        sampleRoundCompleted.put(player.getUniqueId(), currentDay);
+        gp.setSampleResultReady(true);
+        gp.setSamplesCollected(0);
+        player.sendMessage(PREFIX + "§aSamples submitted! Results will be ready at the start of next discussion.");
+        roundLog.add("§8Day " + currentDay + " — " + player.getName() + " submitted samples.");
+        return true;
+    }
+
+    // Called at start of discussion — deliver sample results
+    private void deliverSampleResults() {
+        for (GamePlayer gp : gamePlayers.values()) {
+            if (!gp.isSampleResultReady()) continue;
+            Player p = Bukkit.getPlayer(gp.getUUID());
+            if (p == null) continue;
+            // Pick a random alive player to reveal
+            List<Player> targets = getAlivePlayers().stream()
+                .filter(t -> !t.getUniqueId().equals(p.getUniqueId()))
+                .collect(Collectors.toList());
+            if (targets.isEmpty()) continue;
+            Player target = targets.get(new Random().nextInt(targets.size()));
+            GamePlayer tgp = gamePlayers.get(target.getUniqueId());
+            if (tgp == null) continue;
+            boolean isParasite = tgp.getRole() == Role.PARASITE;
+            String result = isParasite ? "§4☣ PARASITE" : "§a✔ HUMAN";
+            p.sendMessage(PREFIX + "§aSample Result: §f" + target.getName() + " §7is " + result);
+            p.playSound(p.getLocation(), org.bukkit.Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1.5f);
+            gp.setSampleResultReady(false);
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  SÉANCE — dead players vote to haunt a living player
+    // ══════════════════════════════════════════════════════════════════════════
+    public void handleSeanceVote(Player deadPlayer, Player target) {
+        GamePlayer gp = gamePlayers.get(deadPlayer.getUniqueId());
+        if (gp == null || gp.isAlive()) {
+            deadPlayer.sendMessage(PREFIX + "§cOnly dead players can use the séance.");
+            return;
+        }
+        if (state != GameState.IN_ROUND && state != GameState.DISCUSSION) return;
+        GamePlayer tgp = gamePlayers.get(target.getUniqueId());
+        if (tgp == null || !tgp.isAlive()) {
+            deadPlayer.sendMessage(PREFIX + "§cThat player is not alive.");
+            return;
+        }
+        seanceVotes.put(deadPlayer.getUniqueId(), target.getUniqueId());
+        deadPlayer.sendMessage(PREFIX + "§8You voted to haunt §7" + target.getName() + "§8.");
+        resolveSeance();
+    }
+
+    private void resolveSeance() {
+        java.util.Map<UUID, Integer> tally = new java.util.HashMap<>();
+        for (UUID targetId : seanceVotes.values()) {
+            tally.merge(targetId, 1, Integer::sum);
+        }
+        UUID topTarget = null;
+        int topVotes = 0;
+        for (java.util.Map.Entry<UUID, Integer> e : tally.entrySet()) {
+            if (e.getValue() > topVotes) { topVotes = e.getValue(); topTarget = e.getKey(); }
+        }
+        if (topTarget == null) return;
+        cancelHaunt();
+        hauntedPlayer = topTarget;
+        startHaunt(topTarget);
+    }
+
+    private void startHaunt(UUID targetId) {
+        hauntTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (state != GameState.IN_ROUND) { cancel(); return; }
+                Player p = Bukkit.getPlayer(targetId);
+                if (p == null) { cancel(); return; }
+                // Occasional flicker: brief blindness + sound
+                if (Math.random() < 0.3) {
+                    p.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 8, 0, false, false));
+                    p.playSound(p.getLocation(), org.bukkit.Sound.AMBIENT_CAVE, 0.3f, 0.5f);
+                }
+            }
+        }.runTaskTimer(plugin, 40L, 60L); // check every 3 seconds
+    }
+
+    private void cancelHaunt() {
+        if (hauntTask != null) { hauntTask.cancel(); hauntTask = null; }
+        hauntedPlayer = null;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  LAST WILL — player writes in a book, broadcast on death
+    // ══════════════════════════════════════════════════════════════════════════
+    public void handleLastWillClose(Player player, org.bukkit.inventory.meta.BookMeta book) {
+        GamePlayer gp = gamePlayers.get(player.getUniqueId());
+        if (gp == null) return;
+        if (book.getPageCount() > 0) {
+            String text = book.getPage(1);
+            // Strip formatting to keep it readable, max 120 chars
+            text = text.replaceAll("§[0-9a-fk-or]", "").trim();
+            if (text.length() > 120) text = text.substring(0, 120) + "...";
+            gp.setLastWill(text);
+            player.sendMessage(PREFIX + "§aLast will saved. It will be read if you die.");
+        }
+    }
+
+    public void giveLastWillBook(Player player) {
+        org.bukkit.inventory.ItemStack book = new org.bukkit.inventory.ItemStack(org.bukkit.Material.WRITABLE_BOOK);
+        org.bukkit.inventory.meta.BookMeta meta = (org.bukkit.inventory.meta.BookMeta) book.getItemMeta();
+        meta.setDisplayName("§fLast Will");
+        meta.addPage("Write your last will here...");
+        book.setItemMeta(meta);
+        player.getInventory().addItem(book);
+        player.sendMessage(PREFIX + "§7Write your §flast will §7and close the book to save it.");
+    }
+
+    // Commands to add/list food stations
+    public void addFoodStationCmd(Player admin, Location loc) {
+        addFoodStation(loc);
+        admin.sendMessage(PREFIX + "§aFood station added at §f" + loc.getBlockX() + " " + loc.getBlockY() + " " + loc.getBlockZ());
+        admin.sendMessage(PREFIX + "§7Place a §fbarrel §7or §fhay bale §7block here as the visual.");
     }
 
 }

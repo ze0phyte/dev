@@ -105,7 +105,7 @@ public class ParasiteCommand implements CommandExecutor {
 
             case "status" -> {
                 sender.sendMessage("§8§m──────────────────────────");
-                sender.sendMessage("§5§l☣ PARASITE STATUS");
+                sender.sendMessage("§c§l☣ PARASITE STATUS");
                 sender.sendMessage("§7State: §f" + gm.getState());
                 sender.sendMessage("§7Day: §f" + gm.getCurrentDay());
                 sender.sendMessage("§7Players in game: §f" + gm.getPlayerCount());
@@ -115,6 +115,16 @@ public class ParasiteCommand implements CommandExecutor {
                 sender.sendMessage("§7Discussion: §f" + (gm.getDiscussionLocation() != null ? "§aSet" : "§cNot set"));
                 sender.sendMessage("§7Voting: §f"     + (gm.getVotingLocation()     != null ? "§aSet" : "§cNot set"));
                 sender.sendMessage("§8§m──────────────────────────");
+            }
+
+            case "addfoodstation" -> {
+                if (!(sender instanceof Player p)) { sender.sendMessage("§cMust be a player."); return true; }
+                gm.addFoodStationCmd(p, p.getLocation());
+            }
+
+            case "lastwill" -> {
+                if (!(sender instanceof Player p)) { sender.sendMessage("§cMust be a player."); return true; }
+                gm.giveLastWillBook(p);
             }
 
             case "config" -> {
@@ -149,7 +159,7 @@ public class ParasiteCommand implements CommandExecutor {
 
     private void sendHelp(CommandSender sender) {
         sender.sendMessage("§8§m──────────────────────────");
-        sender.sendMessage("§5§l☣ PARASITE COMMANDS");
+        sender.sendMessage("§c§l☣ PARASITE COMMANDS");
         sender.sendMessage("§e/parasite start §7— Start the game");
         sender.sendMessage("§e/parasite stop §7— Force stop");
         sender.sendMessage("§e/parasite setlobby §7— Set lobby spawn");
@@ -161,6 +171,8 @@ public class ParasiteCommand implements CommandExecutor {
         sender.sendMessage("§e/parasite skipday §7— Skip to discussion now");
         sender.sendMessage("§e/parasite skipvote §7— End voting now");
         sender.sendMessage("§e/parasite config [key] [val] §7— View/change config");
+        sender.sendMessage("§e/parasite addfoodstation §7— Mark food station at your feet");
+        sender.sendMessage("§e/parasite lastwill §7— Get a last will book");
         sender.sendMessage("§e/parasite info §7— Toggle info sidebar");
         sender.sendMessage("§e/parasite status §7— Show game info in chat");
         sender.sendMessage("§8§m──────────────────────────");

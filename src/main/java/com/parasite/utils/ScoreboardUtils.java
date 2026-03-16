@@ -34,7 +34,7 @@ public class ScoreboardUtils {
         // CRITICAL: re-apply hidden team to this new scoreboard if names should be hidden
         SkinUtils.applyHiddenIfNeeded(player);
 
-        Objective obj = board.registerNewObjective("pinfo", Criteria.DUMMY, "§5§l☣ PARASITE ☣");
+        Objective obj = board.registerNewObjective("pinfo", Criteria.DUMMY, "§c§l☣ PARASITE ☣");
         obj.setDisplaySlot(DisplaySlot.SIDEBAR);
 
         GameState state = gm.getState();
@@ -60,21 +60,29 @@ public class ScoreboardUtils {
                 default         -> "§7-";
             };
 
-            setLine(board, obj, line--, "§r");
-            setLine(board, obj, line--, "§7Day: §f" + gm.getCurrentDay());
-            setLine(board, obj, line--, "§7Phase: " + phase);
-            setLine(board, obj, line--, "§7Time: §f" + formatTime(gm.getTimer()));
-            setLine(board, obj, line--, "§r§r");
-            setLine(board, obj, line--, "§7Alive: §a" + alive + "  §7Dead: §c" + dead);
-            setLine(board, obj, line--, "§r§r§r");
+            // Header lines — compact to leave room for all players
+            java.util.List<GamePlayer> allPlayers = new java.util.ArrayList<>(gm.getAllGamePlayers());
+            int headerLines = 4; // day, phase, time, alive/dead
+            int maxPlayers = 15 - headerLines;
 
-            for (GamePlayer gp : gm.getAllGamePlayers()) {
+            setLine(board, obj, line--, "§7Day: §f" + gm.getCurrentDay() + "  §7Phase: " + phase);
+            setLine(board, obj, line--, "§7Time: §f" + formatTime(gm.getTimer()));
+            setLine(board, obj, line--, "§7Alive: §a" + alive + "  §7Dead: §c" + dead);
+            setLine(board, obj, line--, "§8§m─────────────────");
+
+            int shown = 0;
+            for (GamePlayer gp : allPlayers) {
+                if (shown >= maxPlayers) {
+                    setLine(board, obj, line--, "§8... +" + (allPlayers.size() - shown) + " more");
+                    break;
+                }
                 String status = gp.isAlive() ? "§a✔" : "§c✘";
                 String roleTag = player.isOp()
                         ? " §8[" + gp.getRole().getColor() + stripColor(gp.getRole().getDisplay()) + "§8]"
                         : "";
                 String entry = status + " §f" + gp.getName() + roleTag;
-                if (line > 0) setLine(board, obj, line--, entry);
+                setLine(board, obj, line--, entry);
+                shown++;
             }
         }
 
@@ -116,10 +124,10 @@ public class ScoreboardUtils {
         GameState state = gm.getState();
         String header, footer;
         if (state == GameState.WAITING || state == GameState.STARTING) {
-            header = "\n§5§l☣ PARASITE §8| §7Admin View\n";
+            header = "\n§c§l☣ PARASITE §8| §7Admin View\n";
             footer = "\n§7Lobby: §a" + gm.getPlayerCount() + " §7/ §f" + gm.getMaxPlayers() + "\n";
         } else {
-            header = "\n§5§l☣ PARASITE §8| §7Day " + gm.getCurrentDay() + " — " + state.name() + "\n";
+            header = "\n§c§l☣ PARASITE §8| §7Day " + gm.getCurrentDay() + " — " + state.name() + "\n";
             footer = "\n§7Alive: §a" + gm.getAlivePlayers().size()
                     + "  §7Dead: §c" + (gm.getAllGamePlayers().stream().filter(g -> !g.isAlive()).count()) + "\n";
         }

@@ -104,7 +104,7 @@ public class ItemUtils {
         return item;
     }
 
-    /** Signs with CanPlaceOn NBT — placeable on smooth_stone and gray_concrete in Adventure mode */
+    /** Signs with CanPlaceOn NBT — placeable on smooth_stone, gray_concrete, smooth_quartz, and all stained glass */
     @SuppressWarnings("deprecation")
     public static ItemStack signStack(int amount) {
         ItemStack item = new ItemStack(Material.OAK_SIGN, amount);
@@ -114,7 +114,7 @@ public class ItemUtils {
         item.setItemMeta(meta);
         // CanPlaceOn NBT — required for Adventure mode to allow placing on these blocks
         Bukkit.getUnsafe().modifyItemStack(item,
-            "{CanPlaceOn:[\"minecraft:smooth_stone\",\"minecraft:gray_concrete\"]}");
+            "{CanPlaceOn:[\\\"minecraft:smooth_stone\\\",\\\"minecraft:gray_concrete\\\",\\\"minecraft:smooth_quartz\\\",\\\"minecraft:white_stained_glass\\\",\\\"minecraft:orange_stained_glass\\\",\\\"minecraft:magenta_stained_glass\\\",\\\"minecraft:light_blue_stained_glass\\\",\\\"minecraft:yellow_stained_glass\\\",\\\"minecraft:lime_stained_glass\\\",\\\"minecraft:pink_stained_glass\\\",\\\"minecraft:gray_stained_glass\\\",\\\"minecraft:light_gray_stained_glass\\\",\\\"minecraft:cyan_stained_glass\\\",\\\"minecraft:purple_stained_glass\\\",\\\"minecraft:blue_stained_glass\\\",\\\"minecraft:brown_stained_glass\\\",\\\"minecraft:green_stained_glass\\\",\\\"minecraft:red_stained_glass\\\",\\\"minecraft:black_stained_glass\\\"]}");
         return item;
     }
 

@@ -14,11 +14,25 @@ public class GamePlayer {
     private boolean savedThisRound = false;
     private boolean usedCrossbow = false;
     private boolean hasVoted = false;
-    private boolean infectedThisRound = false; // Parasite can only infect ONE person per round
+    private boolean infectedThisRound = false;
 
-    // Stamina
-    private int stamina = 20;           // 0-20, mirrors food bar
+    // Stamina (food bar)
+    private int stamina = 20;
     private long lastStaminaUse = 0;
+
+    // Nutrition tracking — how many times eaten this round
+    private int nutritionCount = 0;
+    private long lastFoodStationUse = 0; // per-player cooldown per station tracked in GameManager
+
+    // Last will — written before death
+    private String lastWill = null;
+
+    // Sample collection for medbay
+    private int samplesCollected = 0;
+    private boolean sampleResultReady = false; // true after completing 3 samples for 1 round
+
+    // Séance haunt target (dead players vote on this)
+    // Stored in GameManager, not here
 
     // Parasite swap cooldown
     private long lastSwapMillis = 0;
@@ -34,7 +48,6 @@ public class GamePlayer {
         this.name = name;
     }
 
-    // Reset per-round state (called each new day)
     public void resetRound() {
         infected = false;
         savedThisRound = false;
@@ -44,14 +57,18 @@ public class GamePlayer {
         infectedThisRound = false;
         stamina = 20;
         lastStaminaUse = 0;
+        nutritionCount = 0;
+        samplesCollected = 0;
+        sampleResultReady = false;
+        lastWill = null;
     }
 
-    // Full reset for new game
     public void resetFull() {
         role = Role.CREWMATE;
         alive = true;
         lastSwapMillis = 0;
         forcedRole = null;
+        lastFoodStationUse = 0;
         resetRound();
     }
 
@@ -95,4 +112,19 @@ public class GamePlayer {
 
     public long getLastStaminaUse() { return lastStaminaUse; }
     public void setLastStaminaUse(long t) { this.lastStaminaUse = t; }
+
+    public int getNutritionCount() { return nutritionCount; }
+    public void incrementNutrition() { this.nutritionCount++; }
+
+    public long getLastFoodStationUse() { return lastFoodStationUse; }
+    public void setLastFoodStationUse(long t) { this.lastFoodStationUse = t; }
+
+    public String getLastWill() { return lastWill; }
+    public void setLastWill(String will) { this.lastWill = will; }
+
+    public int getSamplesCollected() { return samplesCollected; }
+    public void setSamplesCollected(int n) { this.samplesCollected = n; }
+
+    public boolean isSampleResultReady() { return sampleResultReady; }
+    public void setSampleResultReady(boolean b) { this.sampleResultReady = b; }
 }
