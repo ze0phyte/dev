@@ -5,6 +5,7 @@ import com.parasite.utils.ItemUtils;
 import com.parasite.utils.LocationUtils;
 import com.parasite.utils.ScoreboardUtils;
 import com.parasite.utils.SkinUtils;
+import com.parasite.utils.SwapUtils;
 import org.bukkit.*;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.entity.Player;
@@ -193,10 +194,29 @@ public class GameManager {
         }
 
         List<Location> spawnPoints = generateSpawnRing(arenaLocation, active.size(), 24.0);
-        int i = 0;
+
+        // Blind all simultaneously before scatter so nobody sees lerp
         for (Player p : active) {
-            teleportBlind(p, spawnPoints.get(i++));
+            p.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 80, 255, false, false));
+            p.addPotionEffect(new PotionEffect(PotionEffectType.CONFUSION, 80, 10, false, false));
         }
+        final List<Location> initialSpawns = spawnPoints;
+        final List<Player> initialActive = active;
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            for (int i = 0; i < initialActive.size(); i++) {
+                Player p = initialActive.get(i);
+                if (!p.isOnline()) continue;
+                p.teleport(initialSpawns.get(i));
+                p.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+            }
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                for (Player p : initialActive) {
+                    if (!p.isOnline()) continue;
+                    p.removePotionEffect(PotionEffectType.BLINDNESS);
+                    p.removePotionEffect(PotionEffectType.CONFUSION);
+                }
+            }, 20L);
+        }, 30L);
 
         // Build parasite player list for peer-visibility nametags
         List<Player> parasitePlayers = getAlivePlayers().stream()
@@ -623,17 +643,9 @@ public class GameManager {
         Location parasiteLoc = parasite.getLocation().clone();
         Location targetLoc = target.getLocation().clone();
 
-        // Silent swap — no blindness, no sound, completely unnoticeable to observers
-        // Teleport both simultaneously then zero velocity to kill MC lerp drag
-        parasite.teleport(targetLoc);
-        target.teleport(parasiteLoc);
-        parasite.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
-        target.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
-        // Also clear any existing momentum from the server-side
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            parasite.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
-            target.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
-        }, 1L);
+        // Use ProtocolLib to send fake position packets to observers before the real TP
+        // so their client sees no lerp at all
+        SwapUtils.silentSwap(parasite, target, getAlivePlayers(), plugin);
 
         pgp.setLastSwapMillis(now);
         roundLog.add("§8Day " + currentDay + " — §cParasite §8swapped with §c" + target.getName());
@@ -834,11 +846,32 @@ public class GameManager {
         if (arenaLocation == null) return;
         List<Player> alive = getAlivePlayers();
         List<Location> spawns = generateSpawnRing(arenaLocation, alive.size(), 24.0);
-        int i = 0;
+
+        // Step 1: blind ALL players simultaneously so nobody sees anyone else lerp
         for (Player p : alive) {
-            teleportBlind(p, spawns.get(i++));
-            giveRoundItems(p, gamePlayers.get(p.getUniqueId()).getRole());
+            p.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 80, 255, false, false));
+            p.addPotionEffect(new PotionEffect(PotionEffectType.CONFUSION, 80, 10, false, false));
         }
+
+        // Step 2: teleport everyone after 1.5s (screens are fully black)
+        final List<Location> finalSpawns = spawns;
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            for (int i = 0; i < alive.size(); i++) {
+                Player p = alive.get(i);
+                if (!p.isOnline()) continue;
+                p.teleport(finalSpawns.get(i));
+                p.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+                giveRoundItems(p, gamePlayers.get(p.getUniqueId()).getRole());
+            }
+            // Step 3: keep blind 1s more after teleport so lerp is invisible, then clear
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                for (Player p : alive) {
+                    if (!p.isOnline()) continue;
+                    p.removePotionEffect(PotionEffectType.BLINDNESS);
+                    p.removePotionEffect(PotionEffectType.CONFUSION);
+                }
+            }, 20L);
+        }, 30L);
     }
 
     private void revealRoleToPlayer(Player p, Role role) {
