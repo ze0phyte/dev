@@ -2,6 +2,7 @@ package com.parasite;
 
 import com.parasite.commands.ParasiteCommand;
 import com.parasite.commands.PJoinCommand;
+import com.parasite.commands.SeanceCommand;
 import com.parasite.game.GameManager;
 import com.parasite.listeners.*;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -21,6 +22,7 @@ public class ParasitePlugin extends JavaPlugin {
         // Commands
         getCommand("parasite").setExecutor(new ParasiteCommand(this));
         getCommand("pjoin").setExecutor(new PJoinCommand(this));
+        getCommand("seance").setExecutor(new SeanceCommand(this));
 
         // Listeners
         getServer().getPluginManager().registerEvents(new PlayerJoinQuitListener(this), this);

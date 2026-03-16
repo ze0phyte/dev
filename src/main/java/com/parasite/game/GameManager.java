@@ -195,13 +195,14 @@ public class GameManager {
 
         List<Location> spawnPoints = generateSpawnRing(arenaLocation, active.size(), 24.0);
 
-        // Blind all simultaneously before scatter so nobody sees lerp
+        // Blind all simultaneously — 5s before tp, tp fires at 3s, blind lasts 7s total
         for (Player p : active) {
-            p.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 80, 255, false, false));
-            p.addPotionEffect(new PotionEffect(PotionEffectType.CONFUSION, 80, 10, false, false));
+            p.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 140, 255, false, false));
+            p.addPotionEffect(new PotionEffect(PotionEffectType.CONFUSION, 140, 10, false, false));
         }
         final List<Location> initialSpawns = spawnPoints;
         final List<Player> initialActive = active;
+        // Teleport at 3s (60 ticks) — screens fully black well before this
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             for (int i = 0; i < initialActive.size(); i++) {
                 Player p = initialActive.get(i);
@@ -209,14 +210,14 @@ public class GameManager {
                 p.teleport(initialSpawns.get(i));
                 p.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
             }
+            // Zero velocity again 1 tick later
             plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
                 for (Player p : initialActive) {
-                    if (!p.isOnline()) continue;
-                    p.removePotionEffect(PotionEffectType.BLINDNESS);
-                    p.removePotionEffect(PotionEffectType.CONFUSION);
+                    if (p.isOnline()) p.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
                 }
-            }, 20L);
-        }, 30L);
+            }, 1L);
+            // Blindness expires naturally at 7s total — no early removal
+        }, 60L);
 
         // Build parasite player list for peer-visibility nametags
         List<Player> parasitePlayers = getAlivePlayers().stream()
@@ -668,11 +669,9 @@ public class GameManager {
 
         sgp.decrementScannerShots();
         int remaining = sgp.getScannerShotsLeft();
-        GamePlayer tgp = gamePlayers.get(target.getUniqueId());
-        boolean isParasite = tgp != null && tgp.getRole() == Role.PARASITE;
-        String result = isParasite ? "§4☣ PARASITE" : "§a✔ HUMAN";
-        shooter.sendMessage(PREFIX + "§eScanner: §f" + target.getName() + " §8— " + result);
-        shooter.sendTitle("§e§lSCANNED", "§f" + target.getName() + " " + result, 5, 40, 10);
+        // Scanner only reveals the player's name — not their role. That's the Researcher's job.
+        shooter.sendMessage(PREFIX + "§eScanner: §fIdentified §e" + target.getName());
+        shooter.sendTitle("§e§lIDENTIFIED", "§f" + target.getName(), 5, 40, 10);
         shooter.playSound(shooter.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1.5f);
 
         if (remaining <= 0) {
@@ -767,8 +766,8 @@ public class GameManager {
         // Last will book in slot 7
         org.bukkit.inventory.ItemStack willBook = new org.bukkit.inventory.ItemStack(org.bukkit.Material.WRITABLE_BOOK);
         org.bukkit.inventory.meta.BookMeta willMeta = (org.bukkit.inventory.meta.BookMeta) willBook.getItemMeta();
-        willMeta.setDisplayName("§fLast Will");
-        willMeta.addPage("");
+        willMeta.setDisplayName("§fLast Will & Testament");
+        willMeta.addPage("Write your last will here.\n\nWhen you are done, press DONE (sign the book) to save it.\n\nIt will be read aloud to everyone if you die.");
         willBook.setItemMeta(willMeta);
         p.getInventory().setItem(7, willBook);
 
@@ -847,13 +846,13 @@ public class GameManager {
         List<Player> alive = getAlivePlayers();
         List<Location> spawns = generateSpawnRing(arenaLocation, alive.size(), 24.0);
 
-        // Step 1: blind ALL players simultaneously so nobody sees anyone else lerp
+        // Blind ALL simultaneously — 5s before tp so screens are completely black
         for (Player p : alive) {
-            p.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 80, 255, false, false));
-            p.addPotionEffect(new PotionEffect(PotionEffectType.CONFUSION, 80, 10, false, false));
+            p.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 140, 255, false, false));
+            p.addPotionEffect(new PotionEffect(PotionEffectType.CONFUSION, 140, 10, false, false));
         }
 
-        // Step 2: teleport everyone after 1.5s (screens are fully black)
+        // Teleport at 3s (60 ticks) — well into the blackout window
         final List<Location> finalSpawns = spawns;
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             for (int i = 0; i < alive.size(); i++) {
@@ -863,15 +862,14 @@ public class GameManager {
                 p.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
                 giveRoundItems(p, gamePlayers.get(p.getUniqueId()).getRole());
             }
-            // Step 3: keep blind 1s more after teleport so lerp is invisible, then clear
+            // Zero velocity again 1 tick later
             plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
                 for (Player p : alive) {
-                    if (!p.isOnline()) continue;
-                    p.removePotionEffect(PotionEffectType.BLINDNESS);
-                    p.removePotionEffect(PotionEffectType.CONFUSION);
+                    if (p.isOnline()) p.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
                 }
-            }, 20L);
-        }, 30L);
+            }, 1L);
+            // Blindness expires naturally at 7s — no early removal
+        }, 60L);
     }
 
     private void revealRoleToPlayer(Player p, Role role) {
@@ -899,20 +897,16 @@ public class GameManager {
     }
 
     public void teleportBlind(Player player, Location location) {
-        // Max blindness (255) + nausea so you see absolutely nothing
-        player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 60, 255, false, false));
-        player.addPotionEffect(new PotionEffect(PotionEffectType.CONFUSION, 60, 10, false, false));
-        // Teleport after 1.5s (30 ticks) so screen is fully black before position changes
+        // 7s total blind (140 ticks), tp at 3s, expires naturally
+        player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 140, 255, false, false));
+        player.addPotionEffect(new PotionEffect(PotionEffectType.CONFUSION, 140, 10, false, false));
         new BukkitRunnable() {
             @Override
             public void run() {
                 player.teleport(location);
                 player.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
-                // Keep blind for 1.5s after teleport so position lerp is invisible
-                player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 30, 255, false, false));
-                player.addPotionEffect(new PotionEffect(PotionEffectType.CONFUSION, 30, 10, false, false));
             }
-        }.runTaskLater(plugin, 30L);
+        }.runTaskLater(plugin, 60L);
     }
 
     public void addBlindness(Player player, int seconds) {
@@ -1243,8 +1237,7 @@ public class GameManager {
                     int eaten = gp.getNutritionCount();
                     int required = nutritionRequired;
                     String bar = buildNutritionBar(eaten, required);
-                    String status = gp.isInfected() ? " §c[INFECTED?]" : "";
-                    String msg = "§7Nutrition: " + bar + " §8(" + eaten + "/" + required + ")" + status;
+                    String msg = "§7Nutrition: " + bar + " §8(" + eaten + "/" + required + ")";
                     p.spigot().sendMessage(
                         net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
                         net.md_5.bungee.api.chat.TextComponent.fromLegacyText(msg));
@@ -1307,37 +1300,44 @@ public class GameManager {
     //  WEATHER SHIFT — random each round
     // ══════════════════════════════════════════════════════════════════════════
     private void applyWeatherShift() {
-        if (arenaLocation == null) return;
-        org.bukkit.World world = arenaLocation.getWorld();
-        if (world == null) return;
-
+        // Weather is simulated via potion effects — works in any world including The End
         double roll = Math.random();
+        List<Player> alive = getAlivePlayers();
+
         if (roll < 0.35) {
-            // Rain — mild visibility reduction via particles, no actual effect
+            // "Rain" — darkness + slowness to simulate reduced visibility
             currentWeather = "rain";
-            world.setStorm(true);
-            world.setThundering(false);
-            broadcastAll(PREFIX + "§9⛈ Rain settles over the ship...");
+            for (Player p : alive) {
+                p.addPotionEffect(new PotionEffect(PotionEffectType.DARKNESS, cfgDayDuration * 20, 0, false, false));
+                p.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, cfgDayDuration * 20, 0, false, false));
+            }
+            broadcastAll(PREFIX + "§9⛈ Atmospheric interference. Visibility reduced.");
         } else if (roll < 0.55) {
-            // Thunder — random sound cues, masking audio
+            // "Thunder" — random loud sounds scheduled throughout the round to mask audio cues
             currentWeather = "thunder";
-            world.setStorm(true);
-            world.setThundering(true);
-            broadcastAll(PREFIX + "§8⚡ A thunderstorm rolls in. Stay sharp.");
+            for (Player p : alive) {
+                p.addPotionEffect(new PotionEffect(PotionEffectType.DARKNESS, cfgDayDuration * 20, 0, false, false));
+            }
+            // Schedule random thunder sounds
+            for (int i = 0; i < 4; i++) {
+                int delay = 60 + new Random().nextInt(Math.max(1, cfgDayDuration - 80));
+                plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                    if (state != GameState.IN_ROUND) return;
+                    for (Player p : getAlivePlayers()) {
+                        p.playSound(p.getLocation(), org.bukkit.Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 0.6f, 0.8f);
+                    }
+                }, delay * 20L);
+            }
+            broadcastAll(PREFIX + "§8⚡ Electrical interference. Audio unreliable.");
         } else if (roll < 0.70) {
-            // Clear — slight speed boost to all crew
+            // "Clear" — speed boost
             currentWeather = "clear";
-            world.setStorm(false);
-            world.setThundering(false);
-            for (Player p : getAlivePlayers()) {
+            for (Player p : alive) {
                 p.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, cfgDayDuration * 20, 0, false, false));
             }
-            broadcastAll(PREFIX + "§e☀ Clear skies. The crew moves faster.");
+            broadcastAll(PREFIX + "§e☀ Systems nominal. The crew feels energised.");
         } else {
-            // No special weather
             currentWeather = "normal";
-            world.setStorm(false);
-            world.setThundering(false);
         }
     }
 

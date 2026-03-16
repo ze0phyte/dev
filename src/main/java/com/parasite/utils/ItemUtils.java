@@ -93,7 +93,8 @@ public class ItemUtils {
         CrossbowMeta meta = (CrossbowMeta) item.getItemMeta();
         meta.setDisplayName("§e§lIdentity Scanner");
         meta.setLore(Arrays.asList(
-                "§7Shoot a player to scan their identity.",
+                "§7Shoot a player to confirm their name.",
+                "§8Does not reveal role — use in fog or darkness.",
                 "§e" + shots + " shot" + (shots > 1 ? "s" : "") + " this round."
         ));
         // Pre-load with one arrow so it fires immediately
@@ -155,9 +156,10 @@ public class ItemUtils {
         ItemMeta meta = item.getItemMeta();
         meta.setDisplayName("§d§l🔬 YOU ARE THE RESEARCHER");
         meta.setLore(Arrays.asList(
-                "§7Right-click a player to reveal their role.",
+                "§7Right-click any player with §fempty hand§7.",
+                "§7Privately reveals if they are §4PARASITE§7 or §aHUMAN§7.",
                 "§7Usable once every §d2 days§7.",
-                "§8Keep this information to yourself!"
+                "§8Result only shown to you — share wisely!"
         ));
         meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
         item.setItemMeta(meta);

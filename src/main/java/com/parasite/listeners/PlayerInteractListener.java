@@ -140,23 +140,6 @@ public class PlayerInteractListener implements Listener {
         gm.handleLastWillClose(player, event.getNewBookMeta());
     }
 
-    // ── Séance: dead player right-clicks a living player to vote haunt ───────
-    @EventHandler
-    public void onSeanceInteract(PlayerInteractAtEntityEvent event) {
-        if (event.getHand() != EquipmentSlot.HAND) return;
-        if (!(event.getRightClicked() instanceof Player target)) return;
-        Player player = event.getPlayer();
-        GameManager gm = plugin.getGameManager();
-        GamePlayer gp = gm.getGamePlayer(player.getUniqueId());
-        if (gp == null || gp.isAlive()) return; // only dead players
-        ItemStack held = player.getInventory().getItemInMainHand();
-        // Dead players hold a bone as their séance item (given on death)
-        if (held != null && held.getType() == org.bukkit.Material.BONE) {
-            gm.handleSeanceVote(player, target);
-            event.setCancelled(true);
-        }
-    }
-
     // ── F key = parasite position swap ───────────────────────────────────────
     @EventHandler
     public void onSwapHand(PlayerSwapHandItemsEvent event) {

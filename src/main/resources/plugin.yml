@@ -15,6 +15,10 @@ commands:
     description: Join the parasite lobby
     usage: /pjoin
     permission: parasite.play
+  seance:
+    description: Vote to haunt a living player (dead only)
+    usage: /seance <player>
+    permission: parasite.play
 
 permissions:
   parasite.admin:
