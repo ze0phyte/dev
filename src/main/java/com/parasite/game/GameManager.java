@@ -38,8 +38,6 @@ public class GameManager {
     private BukkitTask blackoutTask = null;
     // Weather shift
     private String currentWeather = "clear";
-    // Sample collection — tracks who completed samples and when
-    private final java.util.Map<UUID, Integer> sampleRoundCompleted = new java.util.HashMap<>();
     // Food stations — list of locations set by OP, per-player cooldown 60s
     private final java.util.List<Location> foodStations = new java.util.ArrayList<>();
     // Séance — dead players vote to haunt someone
@@ -244,8 +242,13 @@ public class GameManager {
         while (parasitesNeeded-- > 0 && idx < unassigned.size()) {
             gamePlayers.get(unassigned.get(idx++)).setRole(Role.PARASITE);
         }
-        if (!hasDoctor && gamePlayers.size() >= 4 && idx < unassigned.size()) {
-            gamePlayers.get(unassigned.get(idx)).setRole(Role.DOCTOR);
+        boolean hasDoctor2 = gamePlayers.values().stream().anyMatch(gp -> gp.getRole() == Role.DOCTOR);
+        if (!hasDoctor2 && gamePlayers.size() >= 4 && idx < unassigned.size()) {
+            gamePlayers.get(unassigned.get(idx++)).setRole(Role.DOCTOR);
+        }
+        boolean hasResearcher = gamePlayers.values().stream().anyMatch(gp -> gp.getRole() == Role.RESEARCHER);
+        if (!hasResearcher && gamePlayers.size() >= 5 && idx < unassigned.size()) {
+            gamePlayers.get(unassigned.get(idx)).setRole(Role.RESEARCHER);
         }
     }
 
@@ -271,12 +274,6 @@ public class GameManager {
         // Reset séance
         seanceVotes.clear();
         cancelHaunt();
-
-        // Reset sample results from last round
-        for (GamePlayer gp : gamePlayers.values()) {
-            gp.setSampleResultReady(false);
-            gp.setSamplesCollected(0);
-        }
 
         // Re-apply Steve skins every day (SR clears them at discussion)
         List<Player> dayAlive = getAlivePlayers();
@@ -372,9 +369,6 @@ public class GameManager {
         }
 
         broadcastAll(PREFIX + "§e§l☎ DISCUSSION TIME! §7" + cfgDiscussionDuration + "s to discuss.");
-
-        // Deliver sample results from last round
-        deliverSampleResults();
 
         // Broadcast last wills of players who died this round
         for (GamePlayer gp : gamePlayers.values()) {
@@ -630,12 +624,16 @@ public class GameManager {
         Location targetLoc = target.getLocation().clone();
 
         // Silent swap — no blindness, no sound, completely unnoticeable to observers
-        // Use velocity trick to smooth out MC's teleport lerp
+        // Teleport both simultaneously then zero velocity to kill MC lerp drag
         parasite.teleport(targetLoc);
         target.teleport(parasiteLoc);
-        // Zero out velocity so there's no position lerp artifact
         parasite.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
         target.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+        // Also clear any existing momentum from the server-side
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            parasite.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+            target.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+        }, 1L);
 
         pgp.setLastSwapMillis(now);
         roundLog.add("§8Day " + currentDay + " — §cParasite §8swapped with §c" + target.getName());
@@ -651,19 +649,40 @@ public class GameManager {
         if (state != GameState.IN_ROUND && state != GameState.DISCUSSION) return;
         GamePlayer sgp = gamePlayers.get(shooter.getUniqueId());
         if (sgp == null || !sgp.isAlive()) return;
-        if (sgp.hasUsedCrossbow()) { shooter.sendMessage(PREFIX + "§cYou've already used your scanner this round."); return; }
+        if (sgp.getScannerShotsLeft() <= 0) {
+            shooter.sendMessage(PREFIX + "§cNo scanner shots left this round.");
+            return;
+        }
 
-        sgp.setUsedCrossbow(true);
-        shooter.sendMessage(PREFIX + "§eScanner result: §f" + target.getName());
-        shooter.sendTitle("§e§lSCANNED", "§f" + target.getName(), 5, 40, 10);
+        sgp.decrementScannerShots();
+        int remaining = sgp.getScannerShotsLeft();
+        GamePlayer tgp = gamePlayers.get(target.getUniqueId());
+        boolean isParasite = tgp != null && tgp.getRole() == Role.PARASITE;
+        String result = isParasite ? "§4☣ PARASITE" : "§a✔ HUMAN";
+        shooter.sendMessage(PREFIX + "§eScanner: §f" + target.getName() + " §8— " + result);
+        shooter.sendTitle("§e§lSCANNED", "§f" + target.getName() + " " + result, 5, 40, 10);
         shooter.playSound(shooter.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1.5f);
 
-        for (int i = 0; i < shooter.getInventory().getSize(); i++) {
-            ItemStack it = shooter.getInventory().getItem(i);
-            if (it != null && it.getType() == Material.CROSSBOW) {
-                shooter.getInventory().setItem(i, null);
-                break;
+        if (remaining <= 0) {
+            // Remove crossbow
+            for (int i = 0; i < shooter.getInventory().getSize(); i++) {
+                ItemStack it = shooter.getInventory().getItem(i);
+                if (it != null && it.getType() == Material.CROSSBOW) {
+                    shooter.getInventory().setItem(i, null);
+                    break;
+                }
             }
+            shooter.sendMessage(PREFIX + "§7Scanner depleted for this round.");
+        } else {
+            // Re-load crossbow with arrow for next shot
+            for (int i = 0; i < shooter.getInventory().getSize(); i++) {
+                ItemStack it = shooter.getInventory().getItem(i);
+                if (it != null && it.getType() == Material.CROSSBOW) {
+                    shooter.getInventory().setItem(i, ItemUtils.scanCrossbow(remaining));
+                    break;
+                }
+            }
+            shooter.sendMessage(PREFIX + "§7Scanner shots remaining: §e" + remaining);
         }
     }
 
@@ -741,18 +760,20 @@ public class GameManager {
         willBook.setItemMeta(willMeta);
         p.getInventory().setItem(7, willBook);
 
-        // Scanner count scales with alive players
+        // Scanner shots scale with alive players — 1 crossbow, N shots tracked in GamePlayer
         int alive = getAlivePlayers().size();
-        int scanners = alive >= 13 ? 4 : alive >= 8 ? 3 : alive >= 5 ? 2 : 1;
-        for (int s = 0; s < scanners; s++) {
-            p.getInventory().setItem(3 + s, ItemUtils.scanCrossbow());
-        }
+        int shots = alive >= 13 ? 4 : alive >= 8 ? 3 : alive >= 5 ? 2 : 1;
+        GamePlayer scanGp = gamePlayers.get(p.getUniqueId());
+        if (scanGp != null) scanGp.setScannerShotsLeft(shots);
+        p.getInventory().setItem(3, ItemUtils.scanCrossbow(shots));
 
         // Role card in slot 8
         if (role == Role.PARASITE) {
             p.getInventory().setItem(8, ItemUtils.parasiteIndicator());
         } else if (role == Role.DOCTOR) {
             p.getInventory().setItem(8, ItemUtils.doctorIndicator());
+        } else if (role == Role.RESEARCHER) {
+            p.getInventory().setItem(8, ItemUtils.researcherIndicator());
         } else {
             p.getInventory().setItem(8, ItemUtils.crewmateIndicator());
         }
@@ -844,28 +865,64 @@ public class GameManager {
     }
 
     public void teleportBlind(Player player, Location location) {
-        addBlindness(player, 3);
+        // Max blindness (255) + nausea so you see absolutely nothing
+        player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 60, 255, false, false));
+        player.addPotionEffect(new PotionEffect(PotionEffectType.CONFUSION, 60, 10, false, false));
+        // Teleport after 1.5s (30 ticks) so screen is fully black before position changes
         new BukkitRunnable() {
             @Override
-            public void run() { player.teleport(location); }
-        }.runTaskLater(plugin, 10L);
+            public void run() {
+                player.teleport(location);
+                player.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
+                // Keep blind for 1.5s after teleport so position lerp is invisible
+                player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 30, 255, false, false));
+                player.addPotionEffect(new PotionEffect(PotionEffectType.CONFUSION, 30, 10, false, false));
+            }
+        }.runTaskLater(plugin, 30L);
     }
 
     public void addBlindness(Player player, int seconds) {
-        player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, seconds * 20, 1, false, false));
+        player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, seconds * 20, 255, false, false));
     }
 
+    /**
+     * Finds up to `count` PINK_CONCRETE blocks within `radius` of centre and
+     * returns standing locations on top of them (Y+1). If not enough are found,
+     * falls back to the centre location so nobody goes into the void.
+     */
     private List<Location> generateSpawnRing(Location centre, int count, double radius) {
-        List<Location> locs = new ArrayList<>();
-        if (count == 0) return locs;
-        double angleStep = 2 * Math.PI / count;
-        for (int i = 0; i < count; i++) {
-            double angle = i * angleStep;
-            double x = centre.getX() + radius * Math.cos(angle);
-            double z = centre.getZ() + radius * Math.sin(angle);
-            locs.add(new Location(centre.getWorld(), x, centre.getY(), z, (float) Math.toDegrees(angle + Math.PI), 0));
+        List<Location> found = new ArrayList<>();
+        if (centre.getWorld() == null || count == 0) return found;
+
+        int cx = centre.getBlockX();
+        int cy = centre.getBlockY();
+        int cz = centre.getBlockZ();
+        int r = (int) Math.ceil(radius);
+
+        for (int x = cx - r; x <= cx + r && found.size() < count * 4; x++) {
+            for (int z = cz - r; z <= cz + r && found.size() < count * 4; z++) {
+                // Search vertically within ±10 of centre Y
+                for (int y = cy - 10; y <= cy + 10; y++) {
+                    org.bukkit.block.Block b = centre.getWorld().getBlockAt(x, y, z);
+                    if (b.getType() == Material.PINK_CONCRETE) {
+                        double dist = Math.sqrt((x - cx) * (x - cx) + (z - cz) * (z - cz));
+                        if (dist <= radius) {
+                            found.add(new Location(centre.getWorld(), x + 0.5, y + 1, z + 0.5));
+                        }
+                    }
+                }
+            }
         }
-        return locs;
+
+        // Shuffle so spawn spots are random each round
+        Collections.shuffle(found);
+
+        // If not enough pink concrete, pad with centre fallback
+        while (found.size() < count) {
+            found.add(centre.clone().add(0, 1, 0));
+        }
+
+        return found.subList(0, count);
     }
 
     private void broadcastAll(String message) {
@@ -990,7 +1047,6 @@ public class GameManager {
         blackoutUsed = false;
         seanceVotes.clear();
         hauntedPlayer = null;
-        sampleRoundCompleted.clear();
         foodStations.clear();
         gamePlayers.clear();
         forcedRoles.clear();
@@ -1289,68 +1345,43 @@ public class GameManager {
         }.runTaskLater(plugin, delay * 20L);
     }
 
+
     // ══════════════════════════════════════════════════════════════════════════
-    //  SAMPLE COLLECTION — medbay mechanic
-    //  Right-click sample block -> collect. Bring 3 to lab chest -> reveal next round
+    //  RESEARCHER — right-click a player to reveal their role (every 2 days)
     // ══════════════════════════════════════════════════════════════════════════
-    public boolean handleSampleCollect(Player player) {
-        if (state != GameState.IN_ROUND) return false;
-        GamePlayer gp = gamePlayers.get(player.getUniqueId());
-        if (gp == null || !gp.isAlive()) return false;
-        if (gp.getSamplesCollected() >= 3) {
-            player.sendMessage(PREFIX + "§7You already have 3 samples. Bring them to the lab chest.");
-            return true;
+    public void handleResearchScan(Player researcher, Player target) {
+        if (state != GameState.IN_ROUND) return;
+        GamePlayer rgp = gamePlayers.get(researcher.getUniqueId());
+        GamePlayer tgp = gamePlayers.get(target.getUniqueId());
+        if (rgp == null || tgp == null) return;
+        if (rgp.getRole() != Role.RESEARCHER) {
+            researcher.sendMessage(PREFIX + "§cOnly the Researcher can use this ability.");
+            return;
         }
-        gp.setSamplesCollected(gp.getSamplesCollected() + 1);
-        player.sendMessage(PREFIX + "§aSample collected! §8(" + gp.getSamplesCollected() + "/3)");
-        player.playSound(player.getLocation(), org.bukkit.Sound.ITEM_BOTTLE_FILL, 1f, 1.5f);
-        return true;
-    }
-
-    public boolean handleLabChest(Player player) {
-        if (state != GameState.IN_ROUND) return false;
-        GamePlayer gp = gamePlayers.get(player.getUniqueId());
-        if (gp == null || !gp.isAlive()) return false;
-
-        // Check if already used sample this round or last 2 rounds
-        int lastUsed = sampleRoundCompleted.getOrDefault(player.getUniqueId(), -99);
-        if (currentDay - lastUsed < 2) {
-            player.sendMessage(PREFIX + "§cSample analysis on cooldown for " + (2 - (currentDay - lastUsed)) + " more round(s).");
-            return true;
+        if (!rgp.isAlive()) return;
+        if (!tgp.isAlive()) {
+            researcher.sendMessage(PREFIX + "§cThat player is dead.");
+            return;
         }
-        if (gp.getSamplesCollected() < 3) {
-            player.sendMessage(PREFIX + "§cNeed 3 samples first. You have §e" + gp.getSamplesCollected() + "§c.");
-            return true;
+        if (target.getUniqueId().equals(researcher.getUniqueId())) {
+            researcher.sendMessage(PREFIX + "§cYou can't scan yourself.");
+            return;
+        }
+        // Cooldown: once every 2 days
+        int lastUsed = rgp.getResearchLastUsedDay();
+        if (lastUsed > 0 && currentDay - lastUsed < 2) {
+            int wait = 2 - (currentDay - lastUsed);
+            researcher.sendMessage(PREFIX + "§cResearch scan on cooldown for §e" + wait + " more day(s).");
+            return;
         }
 
-        sampleRoundCompleted.put(player.getUniqueId(), currentDay);
-        gp.setSampleResultReady(true);
-        gp.setSamplesCollected(0);
-        player.sendMessage(PREFIX + "§aSamples submitted! Results will be ready at the start of next discussion.");
-        roundLog.add("§8Day " + currentDay + " — " + player.getName() + " submitted samples.");
-        return true;
-    }
-
-    // Called at start of discussion — deliver sample results
-    private void deliverSampleResults() {
-        for (GamePlayer gp : gamePlayers.values()) {
-            if (!gp.isSampleResultReady()) continue;
-            Player p = Bukkit.getPlayer(gp.getUUID());
-            if (p == null) continue;
-            // Pick a random alive player to reveal
-            List<Player> targets = getAlivePlayers().stream()
-                .filter(t -> !t.getUniqueId().equals(p.getUniqueId()))
-                .collect(Collectors.toList());
-            if (targets.isEmpty()) continue;
-            Player target = targets.get(new Random().nextInt(targets.size()));
-            GamePlayer tgp = gamePlayers.get(target.getUniqueId());
-            if (tgp == null) continue;
-            boolean isParasite = tgp.getRole() == Role.PARASITE;
-            String result = isParasite ? "§4☣ PARASITE" : "§a✔ HUMAN";
-            p.sendMessage(PREFIX + "§aSample Result: §f" + target.getName() + " §7is " + result);
-            p.playSound(p.getLocation(), org.bukkit.Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1.5f);
-            gp.setSampleResultReady(false);
-        }
+        rgp.setResearchLastUsedDay(currentDay);
+        boolean isParasite = tgp.getRole() == Role.PARASITE;
+        String result = isParasite ? "§4☣ PARASITE" : "§a✔ HUMAN";
+        researcher.sendMessage(PREFIX + "§dResearch Result: §f" + target.getName() + " §7is " + result);
+        researcher.sendTitle("§d§lRESEARCH", "§f" + target.getName() + " — " + result, 5, 60, 15);
+        researcher.playSound(researcher.getLocation(), org.bukkit.Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1.5f);
+        roundLog.add("§8Day " + currentDay + " — Researcher scanned " + target.getName() + " (" + (isParasite ? "PARASITE" : "HUMAN") + ")");
     }
 
     // ══════════════════════════════════════════════════════════════════════════

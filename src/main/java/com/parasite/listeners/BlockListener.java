@@ -44,7 +44,10 @@ public class BlockListener implements Listener {
         event.setCancelled(true);
     }
 
-    /** Signs have CanPlaceOn NBT — Adventure mode handles placement natively. Block everything else. */
+    /**
+     * Sign placement: signs have CanPlaceOn NBT (gray_concrete, smooth_stone).
+     * Adventure mode handles placement natively. Block everything else.
+     */
     @EventHandler(priority = EventPriority.LOW)
     public void onPlace(BlockPlaceEvent event) {
         Player player = event.getPlayer();
@@ -63,9 +66,7 @@ public class BlockListener implements Listener {
 
     /**
      * Right-click block interactions:
-     * - BARREL       = food station (right-click to eat)
-     * - SPONGE       = sample collection point (medbay)
-     * - CHEST        = lab chest for sample submission
+     * - BARREL = food station (right-click to eat)
      */
     @EventHandler(priority = EventPriority.LOW)
     public void onBlockInteract(PlayerInteractEvent event) {
@@ -77,18 +78,8 @@ public class BlockListener implements Listener {
         GameManager gm = plugin.getGameManager();
         if (!gm.isRunning()) return;
 
-        Material type = event.getClickedBlock().getType();
-
-        if (type == Material.BARREL) {
+        if (event.getClickedBlock().getType() == Material.BARREL) {
             if (gm.handleFoodStation(player, event.getClickedBlock())) {
-                event.setCancelled(true);
-            }
-        } else if (type == Material.SPONGE) {
-            if (gm.handleSampleCollect(player)) {
-                event.setCancelled(true);
-            }
-        } else if (type == Material.CHEST) {
-            if (gm.handleLabChest(player)) {
                 event.setCancelled(true);
             }
         }

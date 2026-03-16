@@ -106,6 +106,13 @@ public class PlayerInteractListener implements Listener {
             return;
         }
 
+        // RESEARCHER: right-click empty hand = scan role
+        if (gp.getRole() == Role.RESEARCHER && emptyHand && gm.getState() == GameState.IN_ROUND) {
+            gm.handleResearchScan(player, target);
+            event.setCancelled(true);
+            return;
+        }
+
         // DOCTOR: right-click empty hand = save (round only)
         if (gp.getRole() == Role.DOCTOR && emptyHand && gm.getState() == GameState.IN_ROUND) {
             if (gp.isSavedThisRound()) {

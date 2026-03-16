@@ -13,6 +13,7 @@ public class GamePlayer {
     private boolean infected = false;
     private boolean savedThisRound = false;
     private boolean usedCrossbow = false;
+    private int scannerShotsLeft = 1; // set at round start based on player count
     private boolean hasVoted = false;
     private boolean infectedThisRound = false;
 
@@ -27,9 +28,9 @@ public class GamePlayer {
     // Last will — written before death
     private String lastWill = null;
 
-    // Sample collection for medbay
-    private int samplesCollected = 0;
-    private boolean sampleResultReady = false; // true after completing 3 samples for 1 round
+    // Researcher ability cooldown
+    private int researchLastUsedDay = 0;
+
 
     // Séance haunt target (dead players vote on this)
     // Stored in GameManager, not here
@@ -52,14 +53,13 @@ public class GamePlayer {
         infected = false;
         savedThisRound = false;
         usedCrossbow = false;
+        scannerShotsLeft = 1;
         hasVoted = false;
         votedFor = null;
         infectedThisRound = false;
         stamina = 20;
         lastStaminaUse = 0;
         nutritionCount = 0;
-        samplesCollected = 0;
-        sampleResultReady = false;
         lastWill = null;
     }
 
@@ -69,6 +69,7 @@ public class GamePlayer {
         lastSwapMillis = 0;
         forcedRole = null;
         lastFoodStationUse = 0;
+        researchLastUsedDay = 0;
         resetRound();
     }
 
@@ -91,6 +92,10 @@ public class GamePlayer {
 
     public boolean hasUsedCrossbow() { return usedCrossbow; }
     public void setUsedCrossbow(boolean used) { this.usedCrossbow = used; }
+
+    public int getScannerShotsLeft() { return scannerShotsLeft; }
+    public void setScannerShotsLeft(int n) { this.scannerShotsLeft = n; }
+    public void decrementScannerShots() { this.scannerShotsLeft = Math.max(0, scannerShotsLeft - 1); }
 
     public boolean hasVoted() { return hasVoted; }
     public void setHasVoted(boolean v) { this.hasVoted = v; }
@@ -122,9 +127,7 @@ public class GamePlayer {
     public String getLastWill() { return lastWill; }
     public void setLastWill(String will) { this.lastWill = will; }
 
-    public int getSamplesCollected() { return samplesCollected; }
-    public void setSamplesCollected(int n) { this.samplesCollected = n; }
 
-    public boolean isSampleResultReady() { return sampleResultReady; }
-    public void setSampleResultReady(boolean b) { this.sampleResultReady = b; }
+    public int getResearchLastUsedDay() { return researchLastUsedDay; }
+    public void setResearchLastUsedDay(int day) { this.researchLastUsedDay = day; }
 }

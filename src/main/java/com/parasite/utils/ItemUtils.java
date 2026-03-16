@@ -88,33 +88,33 @@ public class ItemUtils {
      * Identity Scanner — crossbow pre-loaded with one arrow.
      * Player gets the crossbow already charged so they can fire immediately.
      */
-    public static ItemStack scanCrossbow() {
+    public static ItemStack scanCrossbow(int shots) {
         ItemStack item = new ItemStack(Material.CROSSBOW, 1);
         CrossbowMeta meta = (CrossbowMeta) item.getItemMeta();
         meta.setDisplayName("§e§lIdentity Scanner");
         meta.setLore(Arrays.asList(
                 "§7Shoot a player to scan their identity.",
-                "§c1 use per round — arrow included."
+                "§e" + shots + " shot" + (shots > 1 ? "s" : "") + " this round."
         ));
-        // Pre-load the crossbow with an arrow so it fires immediately
-        ItemStack arrow = new ItemStack(Material.ARROW, 1);
-        meta.setChargedProjectiles(Collections.singletonList(arrow));
+        // Pre-load with one arrow so it fires immediately
+        meta.setChargedProjectiles(Collections.singletonList(new ItemStack(Material.ARROW, 1)));
         meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
         item.setItemMeta(meta);
+        // Store remaining shots in item amount isn't great — use lore tag instead
+        // Actual shot count tracked in GamePlayer.scannerShotsLeft
         return item;
     }
 
-    /** Signs with CanPlaceOn NBT — placeable on smooth_stone, gray_concrete, smooth_quartz, and all stained glass */
+    /** Signs — CanPlaceOn gray_concrete and smooth_stone only */
     @SuppressWarnings("deprecation")
     public static ItemStack signStack(int amount) {
         ItemStack item = new ItemStack(Material.OAK_SIGN, amount);
         ItemMeta meta = item.getItemMeta();
         meta.setDisplayName("§fCommunications Board");
-        meta.setLore(Collections.singletonList("§7Place on smooth stone or gray concrete"));
+        meta.setLore(Collections.singletonList("§7Place on gray concrete or smooth stone"));
         item.setItemMeta(meta);
-        // CanPlaceOn NBT — required for Adventure mode to allow placing on these blocks
         Bukkit.getUnsafe().modifyItemStack(item,
-            "{CanPlaceOn:[\\\"minecraft:smooth_stone\\\",\\\"minecraft:gray_concrete\\\",\\\"minecraft:smooth_quartz\\\",\\\"minecraft:white_stained_glass\\\",\\\"minecraft:orange_stained_glass\\\",\\\"minecraft:magenta_stained_glass\\\",\\\"minecraft:light_blue_stained_glass\\\",\\\"minecraft:yellow_stained_glass\\\",\\\"minecraft:lime_stained_glass\\\",\\\"minecraft:pink_stained_glass\\\",\\\"minecraft:gray_stained_glass\\\",\\\"minecraft:light_gray_stained_glass\\\",\\\"minecraft:cyan_stained_glass\\\",\\\"minecraft:purple_stained_glass\\\",\\\"minecraft:blue_stained_glass\\\",\\\"minecraft:brown_stained_glass\\\",\\\"minecraft:green_stained_glass\\\",\\\"minecraft:red_stained_glass\\\",\\\"minecraft:black_stained_glass\\\"]}");
+            "{CanPlaceOn:[\"minecraft:gray_concrete\",\"minecraft:smooth_stone\"]}");
         return item;
     }
 
@@ -150,6 +150,20 @@ public class ItemUtils {
     }
 
     /** Crewmate role card — Nether Star */
+    public static ItemStack researcherIndicator() {
+        ItemStack item = new ItemStack(Material.NETHER_STAR, 1);
+        ItemMeta meta = item.getItemMeta();
+        meta.setDisplayName("§d§l🔬 YOU ARE THE RESEARCHER");
+        meta.setLore(Arrays.asList(
+                "§7Right-click a player to reveal their role.",
+                "§7Usable once every §d2 days§7.",
+                "§8Keep this information to yourself!"
+        ));
+        meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
+        item.setItemMeta(meta);
+        return item;
+    }
+
     public static ItemStack crewmateIndicator() {
         ItemStack item = new ItemStack(Material.NETHER_STAR, 1);
         ItemMeta meta = item.getItemMeta();
