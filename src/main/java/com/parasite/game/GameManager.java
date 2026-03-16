@@ -891,9 +891,10 @@ public class GameManager {
 
     private String getRoleSub(Role role) {
         return switch (role) {
-            case PARASITE -> "§4Infect and destroy the crew!";
-            case DOCTOR   -> "§bProtect the crew from infection!";
-            case CREWMATE -> "§7Find and eject the parasite!";
+            case PARASITE    -> "§4Infect and destroy the crew!";
+            case DOCTOR      -> "§bProtect the crew from infection!";
+            case RESEARCHER  -> "§dScan players to reveal their role every 2 days!";
+            case CREWMATE    -> "§7Find and eject the parasite!";
         };
     }
 
