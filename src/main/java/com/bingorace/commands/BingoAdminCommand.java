@@ -96,6 +96,8 @@ public class BingoAdminCommand implements CommandExecutor {
             sender.sendMessage("§e/br config solo <true|false>");
             sender.sendMessage("§e/br config countdown <seconds>");
             sender.sendMessage("§e/br config timelimit <seconds> §7(0=no limit)");
+            sender.sendMessage("§e/br config border <blocks> §7(default 600)");
+            sender.sendMessage("§e/br config endonbingo <true|false> §7(end on first bingo line)");
             sender.sendMessage("§7Current: diff=§f" + gm.getDifficulty().name()
                 + "§7 teamsize=§f" + gm.getTeamSize()
                 + "§7 teams=§f" + gm.getTeamCount()
@@ -151,6 +153,21 @@ public class BingoAdminCommand implements CommandExecutor {
                 } catch (NumberFormatException e) {
                     sender.sendMessage(GameManager.PREFIX + "§cMust be a number.");
                 }
+            }
+            case "border", "bordersize" -> {
+                try {
+                    int s = Integer.parseInt(val);
+                    if (s < 100 || s > 10000) { sender.sendMessage(GameManager.PREFIX + "§cMust be 100-10000."); return; }
+                    gm.setBorderSize(s);
+                    sender.sendMessage(GameManager.PREFIX + "§aBorder size set to §f" + s + "x" + s);
+                } catch (NumberFormatException e) {
+                    sender.sendMessage(GameManager.PREFIX + "§cMust be a number.");
+                }
+            }
+            case "endonbingo", "firstbingo" -> {
+                boolean b = val.equals("true") || val.equals("on") || val.equals("yes");
+                gm.setEndOnFirstBingo(b);
+                sender.sendMessage(GameManager.PREFIX + "§aEnd on first bingo: " + (b ? "§aON" : "§cOFF"));
             }
             case "timelimit", "time", "timer" -> {
                 try {

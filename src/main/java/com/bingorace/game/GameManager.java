@@ -27,6 +27,9 @@ public class GameManager {
     private int teamSize;
     private int teamCount;
     private int timeLimit;   // seconds, 0 = no limit
+    private int borderSize = 600;
+    private BukkitTask trackerTask;
+    private boolean endOnFirstBingo = true;
 
     private final List<UUID> lobby = new ArrayList<>();
     private final List<BingoTeam> teams = new ArrayList<>();
@@ -230,11 +233,25 @@ public class GameManager {
         // Enable PvP in the game world
         gameWorld.setPVP(true);
 
+        // World border
+        borderSize = plugin.getConfig().getInt("game.border-size", 600);
+        org.bukkit.WorldBorder wb = gameWorld.getWorldBorder();
+        wb.setCenter(gameWorld.getSpawnLocation());
+        wb.setSize(borderSize);
+        wb.setDamageAmount(1.0);
+        wb.setDamageBuffer(5.0);
+        wb.setWarningDistance(20);
+        wb.setWarningTime(15);
+
         broadcastAll(PREFIX + "§a§lGO! §r§7Collect items to complete your bingo card!");
+        broadcastAll(PREFIX + "§7Border: §e" + borderSize + "x" + borderSize + "  §7Press §eF §7to open card.");
 
         // Start timer if configured
         timeLimit = plugin.getConfig().getInt("game.time-limit", 0);
         if (timeLimit > 0) startTimer();
+
+        // Teammate tracker
+        startTrackerTask();
     }
 
     // ── Timer ──────────────────────────────────────────────────────────────
@@ -345,6 +362,9 @@ public class GameManager {
                 p.playSound(p.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1.2f);
             }
         }
+        if (endOnFirstBingo) {
+            handleWin(team, "BINGO — " + type);
+        }
     }
 
     private void handleWin(BingoTeam team, String type) {
@@ -369,6 +389,7 @@ public class GameManager {
         if (state == GameState.IDLE) { sender.sendMessage(PREFIX + "§cNo game is running."); return; }
         if (countdownTask != null) { countdownTask.cancel(); countdownTask = null; }
         if (timerTask != null) { timerTask.cancel(); timerTask = null; }
+        if (trackerTask != null) { trackerTask.cancel(); trackerTask = null; }
         broadcastAll(PREFIX + "§cGame stopped by admin.");
         resetGame();
         sender.sendMessage(PREFIX + "§aGame stopped and reset.");
@@ -376,6 +397,7 @@ public class GameManager {
 
     private void resetGame() {
         if (timerTask != null) { timerTask.cancel(); timerTask = null; }
+        if (trackerTask != null) { trackerTask.cancel(); trackerTask = null; }
         World main = Bukkit.getWorlds().get(0);
         teams.forEach(t -> t.getMembers().forEach(id -> {
             Player p = Bukkit.getPlayer(id);
@@ -429,6 +451,64 @@ public class GameManager {
         };
     }
 
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  TEAMMATE TRACKER — action bar shows all teammates coords every 3 seconds
+    // ══════════════════════════════════════════════════════════════════════════
+    private void startTrackerTask() {
+        if (trackerTask != null) { trackerTask.cancel(); }
+        trackerTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (state != GameState.RUNNING) { cancel(); trackerTask = null; return; }
+                for (BingoTeam team : teams) {
+                    if (team.getMembers().size() <= 1) continue;
+                    for (UUID id : team.getMembers()) {
+                        Player p = Bukkit.getPlayer(id);
+                        if (p == null) continue;
+                        StringBuilder sb = new StringBuilder();
+                        for (UUID otherId : team.getMembers()) {
+                            if (otherId.equals(id)) continue;
+                            Player other = Bukkit.getPlayer(otherId);
+                            if (other == null) { sb.append("§8[offline] "); continue; }
+                            Location loc = other.getLocation();
+                            // Direction arrow relative to this player
+                            String arrow = getDirectionArrow(p.getLocation(), loc);
+                            sb.append(team.getColor()).append("§l").append(other.getName())
+                              .append(" §r§7").append(arrow).append(" §8(")
+                              .append((int) loc.getX()).append(", ")
+                              .append((int) loc.getY()).append(", ")
+                              .append((int) loc.getZ()).append(")  ");
+                        }
+                        if (sb.length() > 0) {
+                            p.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR, new net.md_5.bungee.api.chat.TextComponent(sb.toString().trim()));
+                        }
+                    }
+                }
+            }
+        }.runTaskTimer(plugin, 0L, 60L); // every 3 seconds
+    }
+
+    private String getDirectionArrow(Location from, Location to) {
+        double dx = to.getX() - from.getX();
+        double dz = to.getZ() - from.getZ();
+        double angle = Math.toDegrees(Math.atan2(dz, dx));
+        // Convert to compass bearing (0=E, 90=S, 180=W, 270=N in atan2)
+        // Minecraft yaw: 0=S, 90=W, 180=N, 270=E
+        double playerYaw = ((from.getYaw() % 360) + 360) % 360;
+        double targetBearing = ((Math.toDegrees(Math.atan2(dx, -dz)) % 360) + 360) % 360;
+        double relative = ((targetBearing - playerYaw) % 360 + 360) % 360;
+        // 8 directions
+        if (relative < 22.5 || relative >= 337.5) return "↑";
+        if (relative < 67.5)  return "↗";
+        if (relative < 112.5) return "→";
+        if (relative < 157.5) return "↘";
+        if (relative < 202.5) return "↓";
+        if (relative < 247.5) return "↙";
+        if (relative < 292.5) return "←";
+        return "↖";
+    }
+
     // ── Getters / Setters ──────────────────────────────────────────────────
 
     public GameState getState() { return state; }
@@ -447,4 +527,6 @@ public class GameManager {
     public void setTeamCount(int c) { this.teamCount = c; plugin.getConfig().set("game.team-count", c); plugin.saveConfig(); }
     public void setSoloMode(boolean b) { this.soloMode = b; plugin.getConfig().set("game.solo-mode", b); plugin.saveConfig(); }
     public void setTimeLimit(int t) { this.timeLimit = t; plugin.getConfig().set("game.time-limit", t); plugin.saveConfig(); }
+    public void setBorderSize(int s) { this.borderSize = s; plugin.getConfig().set("game.border-size", s); plugin.saveConfig(); }
+    public void setEndOnFirstBingo(boolean b) { this.endOnFirstBingo = b; plugin.getConfig().set("game.end-on-first-bingo", b); plugin.saveConfig(); }
 }

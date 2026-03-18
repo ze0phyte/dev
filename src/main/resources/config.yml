@@ -5,6 +5,8 @@ game:
   solo-mode: false              # true = every player gets their own card
   countdown: 10                 # seconds before game starts after /br start confirm
   time-limit: 0                  # seconds for the round (0 = no limit, 3600 = 1 hour)
+  border-size: 600               # world border diameter in blocks
+  end-on-first-bingo: true       # end game when any team gets their first bingo line
   allow-nether: true            # whether nether portal use is allowed
   allow-end: false              # end dimension blocked
   world-name: bingo_world       # name of the generated game world
