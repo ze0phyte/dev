@@ -26,6 +26,7 @@ public class GameManager {
     private boolean soloMode;
     private int teamSize;
     private int teamCount;
+    private int timeLimit;   // seconds, 0 = no limit
 
     private final List<UUID> lobby = new ArrayList<>();
     private final List<BingoTeam> teams = new ArrayList<>();
@@ -33,8 +34,9 @@ public class GameManager {
 
     private World gameWorld;
     private BukkitTask countdownTask;
+    private BukkitTask timerTask;
+    private int timeRemaining = 0;
 
-    // Track which bingo lines have already been announced per team
     private final Map<String, Set<String>> announcedBingos = new HashMap<>();
 
     public GameManager(BingoRacePlugin plugin) {
@@ -47,9 +49,10 @@ public class GameManager {
         var cfg = plugin.getConfig();
         try { difficulty = Difficulty.valueOf(cfg.getString("game.default-difficulty", "MEDIUM").toUpperCase()); }
         catch (Exception e) { difficulty = Difficulty.MEDIUM; }
-        soloMode   = cfg.getBoolean("game.solo-mode", false);
-        teamSize   = cfg.getInt("game.team-size", 2);
-        teamCount  = cfg.getInt("game.team-count", 4);
+        soloMode  = cfg.getBoolean("game.solo-mode", false);
+        teamSize  = cfg.getInt("game.team-size", 2);
+        teamCount = cfg.getInt("game.team-count", 4);
+        timeLimit = cfg.getInt("game.time-limit", 0);
     }
 
     // ── Lobby ──────────────────────────────────────────────────────────────
@@ -66,12 +69,11 @@ public class GameManager {
         lobby.add(player.getUniqueId());
         state = GameState.LOBBY;
         broadcastAll(PREFIX + "§a" + player.getName() + " §7joined the lobby! §8[§f" + lobby.size() + "§8]");
-        player.sendMessage(PREFIX + "§7You joined! Wait for the host to start. §8(" + lobby.size() + " in lobby)");
+        player.sendMessage(PREFIX + "§7You joined! Wait for the host to start.");
     }
 
     public void leaveLobby(Player player) {
         lobby.remove(player.getUniqueId());
-        // Also remove from running team if game is running
         BingoTeam team = playerTeamMap.get(player.getUniqueId());
         if (team != null) {
             team.getMembers().remove(player.getUniqueId());
@@ -83,26 +85,21 @@ public class GameManager {
 
     // ── Start ──────────────────────────────────────────────────────────────
 
-    /**
-     * Called after OP confirms setup in GUI. Resets world and starts countdown.
-     */
     public void startGame(Difficulty diff, int tSize, int tCount, boolean solo) {
         if (state == GameState.RUNNING || state == GameState.STARTING) {
             Bukkit.broadcastMessage(PREFIX + "§cA game is already in progress.");
             return;
         }
-        this.difficulty  = diff;
-        this.teamSize    = tSize;
-        this.teamCount   = tCount;
-        this.soloMode    = solo;
+        this.difficulty = diff;
+        this.teamSize   = tSize;
+        this.teamCount  = tCount;
+        this.soloMode   = solo;
 
         state = GameState.STARTING;
         broadcastAll(PREFIX + "§eGame starting! Generating world...");
 
-        // Run world reset async then start on main thread
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             String worldName = plugin.getConfig().getString("game.world-name", "bingo_world");
-            // World creation must happen on main thread
             Bukkit.getScheduler().runTask(plugin, () -> {
                 gameWorld = worldManager.resetAndCreate(worldName);
                 if (gameWorld == null) {
@@ -122,13 +119,11 @@ public class GameManager {
         playerTeamMap.clear();
         announcedBingos.clear();
 
-        List<String> colorNames = plugin.getConfig().getStringList("display.team-colors");
         ChatColor[] colors = {
             ChatColor.RED, ChatColor.BLUE, ChatColor.GREEN, ChatColor.YELLOW,
             ChatColor.AQUA, ChatColor.LIGHT_PURPLE, ChatColor.WHITE, ChatColor.GOLD
         };
 
-        // Collect online lobby players
         List<Player> players = lobby.stream()
             .map(Bukkit::getPlayer)
             .filter(Objects::nonNull)
@@ -136,7 +131,6 @@ public class GameManager {
         Collections.shuffle(players);
 
         if (soloMode) {
-            // Each player is their own "team"
             for (int i = 0; i < players.size(); i++) {
                 ChatColor color = colors[i % colors.length];
                 BingoTeam team = new BingoTeam(players.get(i).getName(), color);
@@ -147,11 +141,8 @@ public class GameManager {
         } else {
             int numTeams = Math.min(teamCount, (int) Math.ceil((double) players.size() / teamSize));
             for (int t = 0; t < numTeams; t++) {
-                ChatColor color = colors[t % colors.length];
-                BingoTeam team = new BingoTeam("Team " + (t + 1), color);
-                teams.add(team);
+                teams.add(new BingoTeam("Team " + (t + 1), colors[t % colors.length]));
             }
-            // Distribute players round-robin
             for (int i = 0; i < players.size(); i++) {
                 BingoTeam team = teams.get(i % teams.size());
                 team.addMember(players.get(i).getUniqueId());
@@ -159,7 +150,6 @@ public class GameManager {
             }
         }
 
-        // Announce teams
         for (BingoTeam team : teams) {
             StringBuilder sb = new StringBuilder(PREFIX + team.getDisplayName() + "§7: ");
             for (UUID id : team.getMembers()) {
@@ -172,23 +162,17 @@ public class GameManager {
 
     private void buildCards() {
         int count = difficulty.getCellCount();
-        // In team mode all teams get the SAME card items (fair race)
-        // In solo mode each player gets a unique shuffled card
         if (!soloMode) {
-            List<com.bingorace.game.BingoItem> sharedItems = ItemLoader.loadAndShuffle(plugin, difficulty, count);
+            List<BingoItem> sharedItems = ItemLoader.loadAndShuffle(plugin, difficulty, count);
             for (BingoTeam team : teams) {
-                // Each team gets a fresh copy of the items
-                List<com.bingorace.game.BingoItem> copy = new ArrayList<>();
-                for (com.bingorace.game.BingoItem item : sharedItems) {
-                    copy.add(new com.bingorace.game.BingoItem(item.getMaterial()));
-                }
+                List<BingoItem> copy = new ArrayList<>();
+                for (BingoItem item : sharedItems) copy.add(new BingoItem(item.getMaterial()));
                 team.setCard(new BingoCard(difficulty, copy));
                 announcedBingos.put(team.getName(), new HashSet<>());
             }
         } else {
             for (BingoTeam team : teams) {
-                List<com.bingorace.game.BingoItem> items = ItemLoader.loadAndShuffle(plugin, difficulty, count);
-                team.setCard(new BingoCard(difficulty, items));
+                team.setCard(new BingoCard(difficulty, ItemLoader.loadAndShuffle(plugin, difficulty, count)));
                 announcedBingos.put(team.getName(), new HashSet<>());
             }
         }
@@ -201,11 +185,7 @@ public class GameManager {
             int t = seconds;
             @Override
             public void run() {
-                if (t <= 0) {
-                    cancel();
-                    launchGame();
-                    return;
-                }
+                if (t <= 0) { cancel(); launchGame(); return; }
                 if (t <= 5 || t % 5 == 0) broadcastAll(PREFIX + "§eGame starts in §c" + t + "§e seconds!");
                 t--;
             }
@@ -215,24 +195,104 @@ public class GameManager {
     private void launchGame() {
         state = GameState.RUNNING;
 
-        // Teleport all players to game world spawn
         Location spawn = gameWorld.getSpawnLocation();
         spawn.setY(spawn.getWorld().getHighestBlockYAt(spawn) + 1);
+
         for (BingoTeam team : teams) {
             for (UUID id : team.getMembers()) {
                 Player p = Bukkit.getPlayer(id);
-                if (p != null) {
-                    p.teleport(spawn);
-                    p.sendTitle("§a§lBINGO RACE!", team.getDisplayName(), 10, 60, 20);
-                    p.playSound(p.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1f);
-                    p.sendMessage(PREFIX + plugin.getConfig().getString("messages.game-start",
-                        "§aThe race has begun! Check your card with §e/bingo"));
-                }
+                if (p == null) continue;
+
+                // Clear inventory
+                p.getInventory().clear();
+                p.getInventory().setArmorContents(null);
+
+                // Survival mode, PvP world
+                p.setGameMode(GameMode.SURVIVAL);
+
+                // Full health and hunger
+                p.setHealth(p.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue());
+                p.setFoodLevel(20);
+                p.setSaturation(20);
+                p.setExp(0);
+                p.setLevel(0);
+
+                // Clear effects
+                p.getActivePotionEffects().forEach(e -> p.removePotionEffect(e.getType()));
+
+                p.teleport(spawn);
+                p.sendTitle("§a§lBINGO RACE!", team.getDisplayName(), 10, 60, 20);
+                p.playSound(p.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1f);
+                p.sendMessage(PREFIX + "§aThe race has begun! Press §eF §ato open your card.");
             }
         }
 
-        broadcastAll(PREFIX + "§a§lGO! §r§7Get the items on your bingo card!");
+        // Enable PvP in the game world
+        gameWorld.setPVP(true);
+
+        broadcastAll(PREFIX + "§a§lGO! §r§7Collect items to complete your bingo card!");
+
+        // Start timer if configured
+        timeLimit = plugin.getConfig().getInt("game.time-limit", 0);
+        if (timeLimit > 0) startTimer();
     }
+
+    // ── Timer ──────────────────────────────────────────────────────────────
+
+    private void startTimer() {
+        timeRemaining = timeLimit;
+        if (timerTask != null) timerTask.cancel();
+        timerTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (state != GameState.RUNNING) { cancel(); return; }
+                timeRemaining--;
+
+                // Warn at key moments
+                if (timeRemaining == 300) broadcastAll(PREFIX + "§e5 minutes remaining!");
+                else if (timeRemaining == 60) broadcastAll(PREFIX + "§e1 minute remaining!");
+                else if (timeRemaining <= 10 && timeRemaining > 0) {
+                    broadcastAll(PREFIX + "§c" + timeRemaining + " seconds!");
+                } else if (timeRemaining <= 0) {
+                    cancel();
+                    handleTimeUp();
+                }
+            }
+        }.runTaskTimer(plugin, 20L, 20L);
+    }
+
+    private void handleTimeUp() {
+        if (state != GameState.RUNNING) return;
+        state = GameState.ENDED;
+
+        // Find team with most completed items
+        BingoTeam leader = null;
+        int most = -1;
+        for (BingoTeam team : teams) {
+            int completed = team.getCard() != null ? team.getCard().getCompletedCount() : 0;
+            if (completed > most) { most = completed; leader = team; }
+        }
+
+        broadcastAll(PREFIX + "§c§lTIME'S UP!");
+        if (leader != null && most > 0) {
+            broadcastAll(PREFIX + "§6§l🏆 " + leader.getDisplayName() + " §6wins with §f" + most + " §6items!");
+            final BingoTeam winner = leader;
+            for (UUID id : winner.getMembers()) {
+                Player p = Bukkit.getPlayer(id);
+                if (p != null) {
+                    p.sendTitle("§6§l🏆 TIME WIN!", "§e" + most + " items collected", 10, 100, 30);
+                    spawnFirework(p.getLocation(), winner.getColor());
+                }
+            }
+        } else {
+            broadcastAll(PREFIX + "§7No winner — nobody collected any items!");
+        }
+
+        Bukkit.getScheduler().runTaskLater(plugin, this::resetGame, 600L);
+    }
+
+    public int getTimeRemaining() { return timeRemaining; }
+    public int getTimeLimit() { return timeLimit; }
 
     // ── Item Collection ────────────────────────────────────────────────────
 
@@ -241,74 +301,43 @@ public class GameManager {
         BingoTeam team = playerTeamMap.get(player.getUniqueId());
         if (team == null) return;
         BingoCard card = team.getCard();
-        if (card == null) return;
-        if (!card.hasItem(material)) return;
+        if (card == null || !card.hasItem(material)) return;
 
-        int before = card.getCompletedCount();
         boolean marked = card.markComplete(material, player.getName());
         if (!marked) return;
 
-        // Notify team
         for (UUID id : team.getMembers()) {
             Player p = Bukkit.getPlayer(id);
             if (p != null) {
-                p.sendMessage(PREFIX + "§a✔ §f" + player.getName() + " §7collected §e"
+                p.sendMessage(PREFIX + "§a✔ §f" + player.getName() + " §7got §e"
                     + formatMaterial(material) + "§7! §8(" + card.getCompletedCount() + "/" + card.getCells().length + ")");
                 p.playSound(p.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.5f, 1.5f);
             }
         }
 
-        // Update all open GUIs
         BingoCardGUI.refreshForTeam(team);
-
-        // Check for bingo lines
         checkBingo(team, card);
-
-        // Check full card win
-        if (card.isFullCard()) {
-            handleWin(team, "FULL CARD");
-        }
+        if (card.isFullCard()) handleWin(team, "FULL CARD");
     }
 
     private void checkBingo(BingoTeam team, BingoCard card) {
         Set<String> announced = announcedBingos.getOrDefault(team.getName(), new HashSet<>());
         int size = card.getSize();
-
-        // Rows
         for (int r = 0; r < size; r++) {
             String key = "row" + r;
-            if (!announced.contains(key) && card.isRowComplete(r)) {
-                announced.add(key);
-                team.incrementBingo();
-                announceBingo(team, "row " + (r + 1));
-            }
+            if (!announced.contains(key) && card.isRowComplete(r)) { announced.add(key); team.incrementBingo(); announceBingo(team, "row " + (r + 1)); }
         }
-        // Columns
-        for (int c = 0; c < size; c++) {
-            String key = "col" + c;
-            if (!announced.contains(key) && card.isColComplete(c)) {
-                announced.add(key);
-                team.incrementBingo();
-                announceBingo(team, "column " + (c + 1));
-            }
+        for (int col = 0; col < size; col++) {
+            String key = "col" + col;
+            if (!announced.contains(key) && card.isColComplete(col)) { announced.add(key); team.incrementBingo(); announceBingo(team, "column " + (col + 1)); }
         }
-        // Diagonals
-        if (!announced.contains("diag1") && card.isDiag1Complete()) {
-            announced.add("diag1");
-            team.incrementBingo();
-            announceBingo(team, "diagonal");
-        }
-        if (!announced.contains("diag2") && card.isDiag2Complete()) {
-            announced.add("diag2");
-            team.incrementBingo();
-            announceBingo(team, "diagonal");
-        }
+        if (!announced.contains("diag1") && card.isDiag1Complete()) { announced.add("diag1"); team.incrementBingo(); announceBingo(team, "diagonal"); }
+        if (!announced.contains("diag2") && card.isDiag2Complete()) { announced.add("diag2"); team.incrementBingo(); announceBingo(team, "diagonal"); }
         announcedBingos.put(team.getName(), announced);
     }
 
     private void announceBingo(BingoTeam team, String type) {
-        String msg = PREFIX + "§6§l★ BINGO! §r" + team.getDisplayName() + " §6completed a " + type + "!";
-        broadcastAll(msg);
+        broadcastAll(PREFIX + "§6§l★ BINGO! §r" + team.getDisplayName() + " §6completed a " + type + "!");
         for (UUID id : team.getMembers()) {
             Player p = Bukkit.getPlayer(id);
             if (p != null) {
@@ -321,11 +350,9 @@ public class GameManager {
     private void handleWin(BingoTeam team, String type) {
         if (state != GameState.RUNNING) return;
         state = GameState.ENDED;
+        if (timerTask != null) { timerTask.cancel(); timerTask = null; }
 
-        String msg = PREFIX + "§6§l🏆 " + team.getDisplayName() + " §6§lWINS THE RACE! 🏆 §8(" + type + ")";
-        broadcastAll(msg);
-
-        // Fireworks for winners
+        broadcastAll(PREFIX + "§6§l🏆 " + team.getDisplayName() + " §6§lWINS THE RACE! 🏆 §8(" + type + ")");
         for (UUID id : team.getMembers()) {
             Player p = Bukkit.getPlayer(id);
             if (p != null) {
@@ -333,45 +360,43 @@ public class GameManager {
                 spawnFirework(p.getLocation(), team.getColor());
             }
         }
-
-        // Auto-reset after 30s
         Bukkit.getScheduler().runTaskLater(plugin, this::resetGame, 600L);
     }
 
     // ── Stop / Reset ───────────────────────────────────────────────────────
 
     public void stopGame(org.bukkit.command.CommandSender sender) {
-        if (state == GameState.IDLE) {
-            sender.sendMessage(PREFIX + "§cNo game is running.");
-            return;
-        }
+        if (state == GameState.IDLE) { sender.sendMessage(PREFIX + "§cNo game is running."); return; }
         if (countdownTask != null) { countdownTask.cancel(); countdownTask = null; }
-        broadcastAll(PREFIX + plugin.getConfig().getString("messages.game-stop", "§cGame stopped by admin."));
+        if (timerTask != null) { timerTask.cancel(); timerTask = null; }
+        broadcastAll(PREFIX + "§cGame stopped by admin.");
         resetGame();
         sender.sendMessage(PREFIX + "§aGame stopped and reset.");
     }
 
     private void resetGame() {
-        // Teleport everyone back to main world
+        if (timerTask != null) { timerTask.cancel(); timerTask = null; }
         World main = Bukkit.getWorlds().get(0);
         teams.forEach(t -> t.getMembers().forEach(id -> {
             Player p = Bukkit.getPlayer(id);
-            if (p != null) p.teleport(main.getSpawnLocation());
+            if (p != null) {
+                p.getInventory().clear();
+                p.setGameMode(GameMode.SURVIVAL);
+                p.teleport(main.getSpawnLocation());
+            }
         }));
-
         teams.clear();
         playerTeamMap.clear();
         lobby.clear();
         announcedBingos.clear();
         gameWorld = null;
+        timeRemaining = 0;
         state = GameState.IDLE;
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
 
-    private void broadcastAll(String msg) {
-        Bukkit.broadcastMessage(msg);
-    }
+    private void broadcastAll(String msg) { Bukkit.broadcastMessage(msg); }
 
     private String formatMaterial(org.bukkit.Material mat) {
         String name = mat.name().toLowerCase().replace('_', ' ');
@@ -384,11 +409,9 @@ public class GameManager {
     private void spawnFirework(Location loc, ChatColor color) {
         Firework fw = loc.getWorld().spawn(loc, Firework.class);
         FireworkMeta meta = fw.getFireworkMeta();
-        Color c = chatColorToFirework(color);
         meta.addEffect(FireworkEffect.builder()
-            .withColor(c).withFade(Color.WHITE)
-            .with(FireworkEffect.Type.BALL_LARGE)
-            .trail(true).build());
+            .withColor(chatColorToFirework(color)).withFade(Color.WHITE)
+            .with(FireworkEffect.Type.BALL_LARGE).trail(true).build());
         meta.setPower(1);
         fw.setFireworkMeta(meta);
     }
@@ -406,7 +429,7 @@ public class GameManager {
         };
     }
 
-    // ── Getters ────────────────────────────────────────────────────────────
+    // ── Getters / Setters ──────────────────────────────────────────────────
 
     public GameState getState() { return state; }
     public Difficulty getDifficulty() { return difficulty; }
@@ -423,4 +446,5 @@ public class GameManager {
     public void setTeamSize(int s) { this.teamSize = s; plugin.getConfig().set("game.team-size", s); plugin.saveConfig(); }
     public void setTeamCount(int c) { this.teamCount = c; plugin.getConfig().set("game.team-count", c); plugin.saveConfig(); }
     public void setSoloMode(boolean b) { this.soloMode = b; plugin.getConfig().set("game.solo-mode", b); plugin.saveConfig(); }
+    public void setTimeLimit(int t) { this.timeLimit = t; plugin.getConfig().set("game.time-limit", t); plugin.saveConfig(); }
 }

@@ -6,6 +6,8 @@ import com.bingorace.commands.BJoinCommand;
 import com.bingorace.game.GameManager;
 import com.bingorace.gui.GUIListener;
 import com.bingorace.gui.ItemPickupListener;
+import com.bingorace.gui.RespawnListener;
+import com.bingorace.gui.SwapHandListener;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class BingoRacePlugin extends JavaPlugin {
@@ -33,6 +35,8 @@ public class BingoRacePlugin extends JavaPlugin {
         // Listeners
         getServer().getPluginManager().registerEvents(new GUIListener(this), this);
         getServer().getPluginManager().registerEvents(new ItemPickupListener(this), this);
+        getServer().getPluginManager().registerEvents(new SwapHandListener(this), this);
+        getServer().getPluginManager().registerEvents(new RespawnListener(this), this);
 
         getLogger().info("BingoRace enabled! Good luck, racers.");
     }

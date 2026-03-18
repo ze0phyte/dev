@@ -95,6 +95,7 @@ public class BingoAdminCommand implements CommandExecutor {
             sender.sendMessage("§e/br config teams <2-8>");
             sender.sendMessage("§e/br config solo <true|false>");
             sender.sendMessage("§e/br config countdown <seconds>");
+            sender.sendMessage("§e/br config timelimit <seconds> §7(0=no limit)");
             sender.sendMessage("§7Current: diff=§f" + gm.getDifficulty().name()
                 + "§7 teamsize=§f" + gm.getTeamSize()
                 + "§7 teams=§f" + gm.getTeamCount()
@@ -149,6 +150,17 @@ public class BingoAdminCommand implements CommandExecutor {
                     sender.sendMessage(GameManager.PREFIX + "§aCountdown set to §f" + c + "s");
                 } catch (NumberFormatException e) {
                     sender.sendMessage(GameManager.PREFIX + "§cMust be a number.");
+                }
+            }
+            case "timelimit", "time", "timer" -> {
+                try {
+                    int t = Integer.parseInt(val);
+                    if (t < 0) { sender.sendMessage(GameManager.PREFIX + "§cMust be >= 0 (0 = no limit)."); return; }
+                    gm.setTimeLimit(t);
+                    String display = t == 0 ? "§aNo limit" : "§f" + (t / 60) + "m " + (t % 60) + "s";
+                    sender.sendMessage(GameManager.PREFIX + "§aTime limit set to " + display);
+                } catch (NumberFormatException e) {
+                    sender.sendMessage(GameManager.PREFIX + "§cMust be a number in seconds. e.g. 3600 = 1 hour");
                 }
             }
             default -> sender.sendMessage(GameManager.PREFIX + "§cUnknown config key: " + key);
