@@ -23,9 +23,10 @@ public class SetupGUI {
         GameManager gm = plugin.getGameManager();
 
         // Row 1: Difficulty selection (slots 10, 12, 14 — left side)
-        inv.setItem(2,  makeItem(Material.LIME_WOOL,   "§a§lEASY",   List.of("§73x3 grid — §f9 items", "§8Common overworld items", gm.getDifficulty() == Difficulty.EASY ? "§a✔ Selected" : "§7Click to select")));
-        inv.setItem(11, makeItem(Material.YELLOW_WOOL, "§e§lMEDIUM", List.of("§74x4 grid — §f16 items", "§8Crafted & mob drop items", gm.getDifficulty() == Difficulty.MEDIUM ? "§a✔ Selected" : "§7Click to select")));
-        inv.setItem(20, makeItem(Material.RED_WOOL,    "§c§lHARD",   List.of("§75x5 grid — §f25 items", "§8Rare & nether items", gm.getDifficulty() == Difficulty.HARD ? "§a✔ Selected" : "§7Click to select")));
+        inv.setItem(1,  makeItem(Material.LIME_WOOL,        "§a§lEASY",       List.of("§73x3 grid — §f9 items",  gm.getDifficulty() == Difficulty.EASY ? "§a✔ Selected" : "§7Click to select")));
+        inv.setItem(10, makeItem(Material.YELLOW_WOOL,      "§e§lMEDIUM",     List.of("§74x4 grid — §f16 items", gm.getDifficulty() == Difficulty.MEDIUM ? "§a✔ Selected" : "§7Click to select")));
+        inv.setItem(19, makeItem(Material.RED_WOOL,         "§c§lHARD",       List.of("§75x5 grid — §f25 items", gm.getDifficulty() == Difficulty.HARD ? "§a✔ Selected" : "§7Click to select")));
+        inv.setItem(28, makeItem(Material.WITHER_SKELETON_SKULL, "§4§lIMPOSSIBLE", List.of("§46x6 grid — §f36 items", gm.getDifficulty() == Difficulty.IMPOSSIBLE ? "§a✔ Selected" : "§7Click to select")));
 
         // Row 2: Team size (slots 29-33)
         inv.setItem(29, makeItem(Material.PLAYER_HEAD, "§fSolo Mode", List.of("§7Every player has their own card", gm.isSoloMode() ? "§a✔ Selected" : "§7Click to select")));

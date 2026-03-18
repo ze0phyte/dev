@@ -116,9 +116,14 @@ public class BingoCardGUI {
 
     private static int[] getSlots(int size) {
         return switch (size) {
+            // 3x3: centred rows 1-3, cols 1-3
             case 3 -> new int[]{10, 11, 12, 19, 20, 21, 28, 29, 30};
+            // 4x4: centred rows 1-4, cols 0-3 (shifted left slightly)
             case 4 -> new int[]{10, 11, 12, 13, 19, 20, 21, 22, 28, 29, 30, 31, 37, 38, 39, 40};
+            // 5x5: fills slots 9-13, 18-22, 27-31, 36-40, 45-49
             case 5 -> new int[]{9, 10, 11, 12, 13, 18, 19, 20, 21, 22, 27, 28, 29, 30, 31, 36, 37, 38, 39, 40, 45, 46, 47, 48, 49};
+            // 6x6: fills slots 0-8, 9-17, 18-26, 27-35, 36-44, 45-53 (all 54 slots)
+            case 6 -> new int[]{0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53};
             default -> new int[]{};
         };
     }

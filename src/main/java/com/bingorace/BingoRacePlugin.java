@@ -24,6 +24,7 @@ public class BingoRacePlugin extends JavaPlugin {
         saveResource("items/easy.yml", false);
         saveResource("items/medium.yml", false);
         saveResource("items/hard.yml", false);
+        saveResource("items/impossible.yml", false);
 
         this.gameManager = new GameManager(this);
 

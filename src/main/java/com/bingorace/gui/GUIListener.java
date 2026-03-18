@@ -49,6 +49,10 @@ public class GUIListener implements Listener {
                 gm.setDifficulty(Difficulty.HARD);
                 player.sendMessage(GameManager.PREFIX + "§cDifficulty set to Hard (5x5)");
                 SetupGUI.open(player, plugin);
+            } else if (name.contains("IMPOSSIBLE")) {
+                gm.setDifficulty(Difficulty.IMPOSSIBLE);
+                player.sendMessage(GameManager.PREFIX + "§4Difficulty set to Impossible (6x6)");
+                SetupGUI.open(player, plugin);
             } else if (name.contains("Solo Mode")) {
                 gm.setSoloMode(!gm.isSoloMode());
                 player.sendMessage(GameManager.PREFIX + "§7Solo mode: " + (gm.isSoloMode() ? "§aON" : "§cOFF"));
