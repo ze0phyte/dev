@@ -54,6 +54,10 @@ public class SetupGUI {
         player.openInventory(inv);
     }
 
+    private static ItemStack makeItem(Material mat, String name) {
+        return makeItem(mat, name, java.util.Collections.emptyList());
+    }
+
     private static ItemStack makeItem(Material mat, String name, List<String> lore) {
         ItemStack item = new ItemStack(mat);
         ItemMeta meta = item.getItemMeta();
