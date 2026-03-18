@@ -1,0 +1,32 @@
+game:
+  default-difficulty: MEDIUM   # EASY, MEDIUM, HARD
+  team-size: 2                  # players per team
+  team-count: 4                 # number of teams
+  solo-mode: false              # true = every player gets their own card
+  countdown: 10                 # seconds before game starts after /br start confirm
+  allow-nether: true            # whether nether portal use is allowed
+  allow-end: false              # end dimension blocked
+  world-name: bingo_world       # name of the generated game world
+
+display:
+  # Item shown in GUI for completed cells
+  completed-material: LIME_STAINED_GLASS_PANE
+  # Item shown for incomplete cells (behind the bingo item)
+  incomplete-border: GRAY_STAINED_GLASS_PANE
+  # Team color names (Bukkit ChatColor names)
+  team-colors:
+    - RED
+    - BLUE
+    - GREEN
+    - YELLOW
+    - AQUA
+    - LIGHT_PURPLE
+    - WHITE
+    - GOLD
+
+messages:
+  prefix: "§8[§aBINGO§8] §r"
+  game-start: "§aThe race has begun! Check your card with §e/bingo"
+  game-stop: "§cGame stopped by admin."
+  bingo: "§6§l★ BINGO! §r§e{team} §6completed a {type}!"
+  win: "§6§l🏆 {team} WINS THE RACE! 🏆"
