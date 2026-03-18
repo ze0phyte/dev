@@ -1,0 +1,28 @@
+# Easy difficulty - 25 common overworld items
+# Grid size: 5x5 (25 cells, all used) for easy, can use subset for 3x3 or 4x4
+items:
+  - OAK_LOG
+  - DIRT
+  - SAND
+  - GRAVEL
+  - APPLE
+  - OAK_LEAVES
+  - STONE
+  - COAL
+  - IRON_ORE
+  - OAK_PLANKS
+  - COBBLESTONE
+  - WHEAT_SEEDS
+  - CHICKEN
+  - BEEF
+  - PORKCHOP
+  - FEATHER
+  - LEATHER
+  - BONE
+  - STRING
+  - SPIDER_EYE
+  - ROTTEN_FLESH
+  - ARROW
+  - FLINT
+  - CLAY_BALL
+  - LILY_PAD
