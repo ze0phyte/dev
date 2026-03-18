@@ -1,0 +1,27 @@
+# Medium difficulty - crafted, smelted, or less common items
+items:
+  - IRON_INGOT
+  - GOLD_INGOT
+  - BREAD
+  - COOKED_BEEF
+  - COOKED_CHICKEN
+  - COOKED_PORKCHOP
+  - TORCH
+  - OAK_DOOR
+  - CHEST
+  - CRAFTING_TABLE
+  - FURNACE
+  - IRON_SWORD
+  - BOW
+  - FISHING_ROD
+  - SADDLE
+  - WOOL
+  - BOOKSHELF
+  - GLASS
+  - BUCKET
+  - MILK_BUCKET
+  - GUNPOWDER
+  - ENDER_PEARL
+  - BLAZE_ROD
+  - GOLD_NUGGET
+  - EXPERIENCE_BOTTLE
