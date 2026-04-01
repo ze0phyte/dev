@@ -117,16 +117,19 @@ public class GameManager {
         });
     }
 
+    // Fixed team names+colors — always first N used based on team count
+    private static final String[] TEAM_NAMES   = {"Blue", "Red", "Green", "Yellow", "Aqua", "Purple", "White", "Orange"};
+    private static final ChatColor[] TEAM_COLORS = {
+        ChatColor.BLUE, ChatColor.RED, ChatColor.GREEN, ChatColor.YELLOW,
+        ChatColor.AQUA, ChatColor.LIGHT_PURPLE, ChatColor.WHITE, ChatColor.GOLD
+    };
+
     private void assignTeams() {
         teams.clear();
         playerTeamMap.clear();
         announcedBingos.clear();
 
-        ChatColor[] colors = {
-            ChatColor.RED, ChatColor.BLUE, ChatColor.GREEN, ChatColor.YELLOW,
-            ChatColor.AQUA, ChatColor.LIGHT_PURPLE, ChatColor.WHITE, ChatColor.GOLD
-        };
-
+        // Shuffle lobby players for random team assignment
         List<Player> players = lobby.stream()
             .map(Bukkit::getPlayer)
             .filter(Objects::nonNull)
@@ -135,17 +138,18 @@ public class GameManager {
 
         if (soloMode) {
             for (int i = 0; i < players.size(); i++) {
-                ChatColor color = colors[i % colors.length];
-                BingoTeam team = new BingoTeam(players.get(i).getName(), color);
+                BingoTeam team = new BingoTeam(players.get(i).getName(), TEAM_COLORS[i % TEAM_COLORS.length]);
                 team.addMember(players.get(i).getUniqueId());
                 teams.add(team);
                 playerTeamMap.put(players.get(i).getUniqueId(), team);
             }
         } else {
-            int numTeams = Math.min(teamCount, (int) Math.ceil((double) players.size() / teamSize));
+            int numTeams = Math.min(teamCount, (int) Math.ceil((double) players.size() / Math.max(1, teamSize)));
+            numTeams = Math.max(1, numTeams);
             for (int t = 0; t < numTeams; t++) {
-                teams.add(new BingoTeam("Team " + (t + 1), colors[t % colors.length]));
+                teams.add(new BingoTeam(TEAM_NAMES[t % TEAM_NAMES.length], TEAM_COLORS[t % TEAM_COLORS.length]));
             }
+            // Round-robin distribute shuffled players
             for (int i = 0; i < players.size(); i++) {
                 BingoTeam team = teams.get(i % teams.size());
                 team.addMember(players.get(i).getUniqueId());
@@ -153,6 +157,8 @@ public class GameManager {
             }
         }
 
+        // Announce team assignments
+        broadcastAll(PREFIX + "§7Teams have been randomized!");
         for (BingoTeam team : teams) {
             StringBuilder sb = new StringBuilder(PREFIX + team.getDisplayName() + "§7: ");
             for (UUID id : team.getMembers()) {
@@ -165,19 +171,10 @@ public class GameManager {
 
     private void buildCards() {
         int count = difficulty.getCellCount();
-        if (!soloMode) {
-            List<BingoItem> sharedItems = ItemLoader.loadAndShuffle(plugin, difficulty, count);
-            for (BingoTeam team : teams) {
-                List<BingoItem> copy = new ArrayList<>();
-                for (BingoItem item : sharedItems) copy.add(new BingoItem(item.getMaterial()));
-                team.setCard(new BingoCard(difficulty, copy));
-                announcedBingos.put(team.getName(), new HashSet<>());
-            }
-        } else {
-            for (BingoTeam team : teams) {
-                team.setCard(new BingoCard(difficulty, ItemLoader.loadAndShuffle(plugin, difficulty, count)));
-                announcedBingos.put(team.getName(), new HashSet<>());
-            }
+        // Every team always gets their own unique randomly shuffled card
+        for (BingoTeam team : teams) {
+            team.setCard(new BingoCard(difficulty, ItemLoader.loadAndShuffle(plugin, difficulty, count)));
+            announcedBingos.put(team.getName(), new HashSet<>());
         }
     }
 
@@ -243,7 +240,12 @@ public class GameManager {
         wb.setWarningDistance(20);
         wb.setWarningTime(15);
 
-        broadcastAll(PREFIX + "§a§lGO! §r§7Collect items to complete your bingo card!");
+        broadcastAll(" ");
+        broadcastAll("§a§l§m════════════════════════════════");
+        broadcastAll("§a§l  GO! Collect items on your card.");
+        broadcastAll("§7  Press §eF §7to open your bingo card at any time.");
+        broadcastAll("§a§l§m════════════════════════════════");
+        broadcastAll(" ");
         broadcastAll(PREFIX + "§7Border: §e" + borderSize + "x" + borderSize + "  §7Press §eF §7to open card.");
 
         // Start timer if configured
@@ -292,12 +294,17 @@ public class GameManager {
 
         broadcastAll(PREFIX + "§c§lTIME'S UP!");
         if (leader != null && most > 0) {
-            broadcastAll(PREFIX + "§6§l🏆 " + leader.getDisplayName() + " §6wins with §f" + most + " §6items!");
+            broadcastAll(" ");
+            broadcastAll("§6§l§m═══════════════════════════════");
+            broadcastAll("§6§l  🏆 TIME'S UP — " + leader.getDisplayName() + " §6§lWINS!");
+            broadcastAll("§7  Most items collected: §f" + most);
+            broadcastAll("§6§l§m═══════════════════════════════");
+            broadcastAll(" ");
             final BingoTeam winner = leader;
             for (UUID id : winner.getMembers()) {
                 Player p = Bukkit.getPlayer(id);
                 if (p != null) {
-                    p.sendTitle("§6§l🏆 TIME WIN!", "§e" + most + " items collected", 10, 100, 30);
+                    p.sendMessage("§6§l🏆 You won with " + most + " items!");
                     spawnFirework(p.getLocation(), winner.getColor());
                 }
             }
@@ -323,13 +330,18 @@ public class GameManager {
         boolean marked = card.markComplete(material, player.getName());
         if (!marked) return;
 
+        int completed = card.getCompletedCount();
+        int total = card.getCells().length;
+        String itemName = formatMaterial(material);
+
+        // Broadcast to EVERYONE — color coded by team
+        broadcastAll(team.getColor() + "[" + team.getName() + "] §r§f" + player.getName()
+            + " §7found §e" + itemName + " §8(" + completed + "/" + total + ")");
+
+        // Play sound for team members
         for (UUID id : team.getMembers()) {
             Player p = Bukkit.getPlayer(id);
-            if (p != null) {
-                p.sendMessage(PREFIX + "§a✔ §f" + player.getName() + " §7got §e"
-                    + formatMaterial(material) + "§7! §8(" + card.getCompletedCount() + "/" + card.getCells().length + ")");
-                p.playSound(p.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.5f, 1.5f);
-            }
+            if (p != null) p.playSound(p.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.6f, 1.5f);
         }
 
         BingoCardGUI.refreshForTeam(team);
@@ -354,12 +366,17 @@ public class GameManager {
     }
 
     private void announceBingo(BingoTeam team, String type) {
-        broadcastAll(PREFIX + "§6§l★ BINGO! §r" + team.getDisplayName() + " §6completed a " + type + "!");
-        for (UUID id : team.getMembers()) {
-            Player p = Bukkit.getPlayer(id);
-            if (p != null) {
-                p.sendTitle("§6§lBINGO!", "§e" + type.toUpperCase(), 5, 60, 20);
-                p.playSound(p.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1.2f);
+        broadcastAll(" ");
+        broadcastAll(team.getColor() + "§l§m          §r " + team.getDisplayName() + team.getColor() + "§l§m          ");
+        broadcastAll(team.getColor() + "§l  ★ BINGO! §r" + team.getDisplayName() + team.getColor() + " completed a " + type + "!");
+        broadcastAll(team.getColor() + "  Bingo count: §f" + team.getBingoCount() + " §8line" + (team.getBingoCount() > 1 ? "s" : ""));
+        broadcastAll(team.getColor() + "§l§m          §r§8§m                    §r " + team.getColor() + "§l§m          ");
+        broadcastAll(" ");
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            if (team.hasMember(online.getUniqueId())) {
+                online.playSound(online.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1.2f);
+            } else {
+                online.playSound(online.getLocation(), Sound.BLOCK_NOTE_BLOCK_BELL, 0.8f, 1f);
             }
         }
         if (endOnFirstBingo) {
@@ -372,11 +389,16 @@ public class GameManager {
         state = GameState.ENDED;
         if (timerTask != null) { timerTask.cancel(); timerTask = null; }
 
-        broadcastAll(PREFIX + "§6§l🏆 " + team.getDisplayName() + " §6§lWINS THE RACE! 🏆 §8(" + type + ")");
+        broadcastAll(" ");
+        broadcastAll("§6§l§m═══════════════════════════════");
+        broadcastAll("§6§l  🏆 " + team.getDisplayName() + " §6§lWINS THE RACE! 🏆");
+        broadcastAll("§7  " + type);
+        broadcastAll("§6§l§m═══════════════════════════════");
+        broadcastAll(" ");
         for (UUID id : team.getMembers()) {
             Player p = Bukkit.getPlayer(id);
             if (p != null) {
-                p.sendTitle("§6§l🏆 YOU WIN!", "§e" + team.getDisplayName(), 10, 100, 30);
+                p.sendMessage("§6§l🏆 You won!");
                 spawnFirework(p.getLocation(), team.getColor());
             }
         }
