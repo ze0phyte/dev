@@ -488,39 +488,55 @@ public class GameManager {
                     for (UUID id : team.getMembers()) {
                         Player p = Bukkit.getPlayer(id);
                         if (p == null) continue;
-                        StringBuilder sb = new StringBuilder();
-                        for (UUID otherId : team.getMembers()) {
-                            if (otherId.equals(id)) continue;
-                            Player other = Bukkit.getPlayer(otherId);
-                            if (other == null) { sb.append("§8[offline] "); continue; }
-                            Location loc = other.getLocation();
-                            // Direction arrow relative to this player
-                            String arrow = getDirectionArrow(p.getLocation(), loc);
-                            sb.append(team.getColor()).append("§l").append(other.getName())
-                              .append(" §r§7").append(arrow).append(" §8(")
-                              .append((int) loc.getX()).append(", ")
-                              .append((int) loc.getY()).append(", ")
-                              .append((int) loc.getZ()).append(")  ");
-                        }
-                        if (sb.length() > 0) {
-                            p.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR, new net.md_5.bungee.api.chat.TextComponent(sb.toString().trim()));
+                        // Give one compass per teammate in hotbar slots 5-8
+                        List<UUID> others = team.getMembers().stream()
+                            .filter(uid -> !uid.equals(id))
+                            .collect(java.util.stream.Collectors.toList());
+                        for (int i = 0; i < others.size() && i < 4; i++) {
+                            Player other = Bukkit.getPlayer(others.get(i));
+                            int slot = 5 + i; // slots 5, 6, 7, 8
+                            if (other == null) {
+                                p.getInventory().setItem(slot, makeTrackerCompass(team, "[offline]", p.getLocation(), p.getLocation()));
+                                continue;
+                            }
+                            Location otherLoc = other.getLocation();
+                            String arrow = getDirectionArrow(p.getLocation(), otherLoc);
+                            p.getInventory().setItem(slot, makeTrackerCompass(team, other.getName(), p.getLocation(), otherLoc));
                         }
                     }
                 }
             }
-        }.runTaskTimer(plugin, 0L, 60L); // every 3 seconds
+        }.runTaskTimer(plugin, 0L, 10L); // update every 0.5s for smooth direction
+    }
+
+    private org.bukkit.inventory.ItemStack makeTrackerCompass(BingoTeam team, String name, Location from, Location to) {
+        org.bukkit.inventory.ItemStack compass = new org.bukkit.inventory.ItemStack(org.bukkit.Material.COMPASS);
+        org.bukkit.inventory.meta.CompassMeta meta = (org.bukkit.inventory.meta.CompassMeta) compass.getItemMeta();
+        meta.setDisplayName(team.getColor() + "§l" + name);
+        String arrow = getDirectionArrow(from, to);
+        int dist = (int) from.distance(to);
+        meta.setLore(java.util.Arrays.asList(
+            "§7Direction: §f" + arrow,
+            "§7Distance: §f" + dist + "m",
+            "§8(" + (int)to.getX() + ", " + (int)to.getY() + ", " + (int)to.getZ() + ")"
+        ));
+        // Set lodestone target so compass actually points at teammate
+        meta.setLodestone(to);
+        meta.setLodestoneTracked(false);
+        compass.setItemMeta(meta);
+        return compass;
     }
 
     private String getDirectionArrow(Location from, Location to) {
         double dx = to.getX() - from.getX();
         double dz = to.getZ() - from.getZ();
-        double angle = Math.toDegrees(Math.atan2(dz, dx));
-        // Convert to compass bearing (0=E, 90=S, 180=W, 270=N in atan2)
-        // Minecraft yaw: 0=S, 90=W, 180=N, 270=E
+        // Minecraft yaw: 0=S, 90=W, 180=N, 270=E (clockwise from south)
         double playerYaw = ((from.getYaw() % 360) + 360) % 360;
-        double targetBearing = ((Math.toDegrees(Math.atan2(dx, -dz)) % 360) + 360) % 360;
+        // atan2(dx, -dz) gives bearing where 0=north, increases clockwise — matches MC yaw
+        // but MC yaw 0=south so we add 180 to align
+        double targetBearing = ((Math.toDegrees(Math.atan2(dx, dz)) % 360) + 360) % 360;
+        // relative: how many degrees clockwise to turn to face target
         double relative = ((targetBearing - playerYaw) % 360 + 360) % 360;
-        // 8 directions
         if (relative < 22.5 || relative >= 337.5) return "↑";
         if (relative < 67.5)  return "↗";
         if (relative < 112.5) return "→";

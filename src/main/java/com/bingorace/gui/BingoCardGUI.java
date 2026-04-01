@@ -45,6 +45,16 @@ public class BingoCardGUI {
         ItemStack border = makeItem(Material.BLACK_STAINED_GLASS_PANE, " ");
         for (int i = 0; i < 54; i++) inv.setItem(i, border);
 
+        // For 6x6: add a visible purple column on col 0 and col 7 to frame the grid
+        if (size == 6) {
+            ItemStack frame = makeItem(Material.PURPLE_STAINED_GLASS_PANE, " ");
+            for (int row = 0; row < 6; row++) {
+                inv.setItem(row * 9, frame);       // col 0 — left wall
+                inv.setItem(row * 9 + 7, frame);   // col 7 — right wall
+                inv.setItem(row * 9 + 8, frame);   // col 8 — far right
+            }
+        }
+
         // Map card cells to inventory slots
         int[] slots = getSlots(size);
         BingoItem[] cardCells = card.getCells();
@@ -116,14 +126,21 @@ public class BingoCardGUI {
 
     private static int[] getSlots(int size) {
         return switch (size) {
-            // 3x3: centred rows 1-3, cols 1-3
+            // 3x3: centred in rows 1-3
             case 3 -> new int[]{10, 11, 12, 19, 20, 21, 28, 29, 30};
-            // 4x4: centred rows 1-4, cols 0-3 (shifted left slightly)
+            // 4x4: centred in rows 1-4
             case 4 -> new int[]{10, 11, 12, 13, 19, 20, 21, 22, 28, 29, 30, 31, 37, 38, 39, 40};
-            // 5x5: fills slots 9-13, 18-22, 27-31, 36-40, 45-49
+            // 5x5: centred columns 2-6
             case 5 -> new int[]{9, 10, 11, 12, 13, 18, 19, 20, 21, 22, 27, 28, 29, 30, 31, 36, 37, 38, 39, 40, 45, 46, 47, 48, 49};
-            // 6x6: fills slots 0-8, 9-17, 18-26, 27-35, 36-44, 45-53 (all 54 slots)
-            case 6 -> new int[]{0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53};
+            // 6x6: columns 1-6 across all 6 rows (borders in cols 0,7,8)
+            case 6 -> new int[]{
+                 1,  2,  3,  4,  5,  6,
+                10, 11, 12, 13, 14, 15,
+                19, 20, 21, 22, 23, 24,
+                28, 29, 30, 31, 32, 33,
+                37, 38, 39, 40, 41, 42,
+                46, 47, 48, 49, 50, 51
+            };
             default -> new int[]{};
         };
     }
